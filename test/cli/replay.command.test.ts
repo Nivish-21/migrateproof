@@ -11,7 +11,15 @@ describe("replay command", () => {
     try {
       await execFileAsync(
         "node",
-        ["dist/cli/index.js", "replay", "../outside", "--version", "v1"],
+        [
+          "--import",
+          "tsx",
+          "src/cli/index.ts",
+          "replay",
+          "../outside",
+          "--version",
+          "v1",
+        ],
         { cwd: repoRoot },
       );
       throw new Error("expected replay to reject an outside-fixtures path");
