@@ -1,2 +1,7 @@
 #!/usr/bin/env node
-console.log("migrateproof: no command implemented yet");
+import { Command } from "commander";
+import { registerCaptureCommand } from "./capture.js";
+
+const program = new Command();
+registerCaptureCommand(program);
+program.parse();

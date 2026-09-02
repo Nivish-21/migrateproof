@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import yaml from "js-yaml";
 import { z } from "zod";
+import { UsageError } from "../errors.js";
 
 const ResponseSchema = z
   .object({
@@ -35,10 +36,19 @@ export const FixtureSchema = z
 
 export type Fixture = z.infer<typeof FixtureSchema>;
 
-export class FixtureValidationError extends Error {}
+export class FixtureValidationError extends UsageError {}
 
 export function loadFixtureYaml(fixtureDir: string): Fixture {
-  const raw = readFileSync(join(fixtureDir, "fixture.yaml"), "utf-8");
+  const fixturePath = join(fixtureDir, "fixture.yaml");
+  let raw: string;
+  try {
+    raw = readFileSync(fixturePath, "utf-8");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new FixtureValidationError(
+      `Unable to read ${fixturePath}: ${message}`,
+    );
+  }
   const parsed = yaml.load(raw);
   const result = FixtureSchema.safeParse(parsed);
   if (!result.success) {
