@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { UsageError } from "../../src/errors.js";
 import { loadFixtureModule } from "../../src/invariants/loadFixtureModule.js";
@@ -16,5 +18,16 @@ describe("loadFixtureModule", () => {
     await expect(
       loadFixtureModule(resolve("test/fixtures-support/broken-consumer.ts")),
     ).rejects.toThrow(UsageError);
+  });
+
+  it("returns a callable default export from a temporary fixture directory", async () => {
+    const directory = mkdtempSync(resolve(tmpdir(), "mp-loader-"));
+    const file = resolve(directory, "consumer.ts");
+    writeFileSync(file, "export default () => ({ total: 2750 });");
+
+    const consumer = await loadFixtureModule<() => { total: number }>(file);
+
+    expect(consumer()).toEqual({ total: 2750 });
+    rmSync(directory, { recursive: true });
   });
 });
