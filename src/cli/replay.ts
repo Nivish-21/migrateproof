@@ -66,7 +66,16 @@ export function registerReplayCommand(program: Command): void {
             process.exit(2);
             return;
           }
-          directories = [resolveFixtureDir(cwd, fixtureDirArg)];
+          try {
+            directories = [resolveFixtureDir(cwd, fixtureDirArg)];
+          } catch (error) {
+            if (error instanceof UsageError) {
+              console.error(`Error: ${error.message}`);
+              process.exit(2);
+              return;
+            }
+            throw error;
+          }
         }
         const results: ReplayResult[] = [];
 
