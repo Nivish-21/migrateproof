@@ -54,6 +54,14 @@ describe("runPatch", () => {
       "export default (result: { tax: number }) => result.tax === 250;",
     );
     await execFileAsync("git", ["init"], { cwd: repoRoot });
+    await execFileAsync("git", ["config", "user.name", "MigrateProof Tests"], {
+      cwd: repoRoot,
+    });
+    await execFileAsync(
+      "git",
+      ["config", "user.email", "migrateproof-tests@example.invalid"],
+      { cwd: repoRoot },
+    );
     await execFileAsync("git", ["add", "."], { cwd: repoRoot });
     await execFileAsync("git", ["commit", "-m", "init"], { cwd: repoRoot });
   });

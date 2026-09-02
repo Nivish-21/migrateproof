@@ -14,6 +14,14 @@ describe("createWorktree", () => {
   beforeAll(async () => {
     repoRoot = mkdtempSync(join(tmpdir(), "mp-repo-"));
     await execFileAsync("git", ["init"], { cwd: repoRoot });
+    await execFileAsync("git", ["config", "user.name", "MigrateProof Tests"], {
+      cwd: repoRoot,
+    });
+    await execFileAsync(
+      "git",
+      ["config", "user.email", "migrateproof-tests@example.invalid"],
+      { cwd: repoRoot },
+    );
     await execFileAsync("git", ["commit", "--allow-empty", "-m", "init"], {
       cwd: repoRoot,
     });
