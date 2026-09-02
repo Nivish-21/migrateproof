@@ -1,0 +1,16 @@
+schemaVersion: 1
+name: checkout-total-invariant
+description: >
+  Consumer checkout flow expects order total to equal sum(lineItems) + tax.
+request:
+  method: GET
+  url: https://api.example.com/v1/orders/123
+responses:
+  v1:
+    status: 200
+    body: { orderId: "123", lineItems: [{ price: 2500 }], tax: 250, total: 2750 }
+  v2:
+    status: 200
+    body: { orderId: "123", lineItems: [{ price: 2500 }], tax: 2.50, total: 2750 }
+invariant: ./invariant.ts
+consumer: ./consumer.ts
