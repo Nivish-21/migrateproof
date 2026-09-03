@@ -7,7 +7,7 @@ export async function runPatch(
   repoRoot: string,
   fixtureDir: string,
   backend: PatchBackend,
-): Promise<{ accepted: boolean; rawLog: string }> {
+): Promise<{ accepted: boolean; rawLog: string; worktreeDir: string | null }> {
   const failureTrace = await runReplay(fixtureDir, "v2");
   const { dir: worktreeDir, cleanup } = await createWorktree(repoRoot);
   try {
@@ -20,8 +20,15 @@ export async function runPatch(
       join(worktreeDir, relative(repoRoot, fixtureDir)),
       "v2",
     );
-    return { accepted: rerun.passed, rawLog: result.rawLog };
-  } finally {
+    if (!rerun.passed) {
+      await cleanup();
+      return { accepted: false, rawLog: result.rawLog, worktreeDir: null };
+    }
+    // Accepted: leave the worktree for the human reviewer. It's their job
+    // to `git worktree remove` it once they've reviewed and merged the diff.
+    return { accepted: true, rawLog: result.rawLog, worktreeDir };
+  } catch (error) {
     await cleanup();
+    throw error;
   }
 }

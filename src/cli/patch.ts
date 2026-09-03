@@ -29,7 +29,13 @@ export function registerPatchCommand(program: Command): void {
           console.error(result.rawLog);
           if (result.accepted) {
             console.log(
-              "patch accepted — review the worktree diff and merge manually",
+              [
+                "patch accepted — review and merge manually:",
+                `  cd ${result.worktreeDir}`,
+                "  git diff",
+                "  # copy/merge the change into your branch, then:",
+                `  git worktree remove --force ${result.worktreeDir}`,
+              ].join("\n"),
             );
             process.exit(0);
           }

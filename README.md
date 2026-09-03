@@ -52,8 +52,22 @@ npx migrateproof patch fixtures/checkout-example --patch-backend codex
 ```
 
 MigrateProof reruns the v2 replay in that worktree and reports whether the
-proposal is accepted. It never merges a patch; review and merge the worktree
-diff manually.
+proposal is accepted. It never merges a patch.
+
+- **Rejected** (rerun still fails): the worktree is removed automatically.
+- **Accepted** (rerun passes): the worktree is left on disk and the CLI
+  prints its path plus the exact next steps:
+
+  ```sh
+  cd <printed worktree path>
+  git diff
+  # merge the change into your branch, then:
+  git worktree remove --force <printed worktree path>
+  ```
+
+  Accepted worktrees are not garbage-collected — if you run `patch`
+  repeatedly without cleaning up, run `git worktree list` /
+  `git worktree prune` to clear stale ones.
 
 ## Fixture format
 

@@ -1,6 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { execFile } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -68,25 +74,33 @@ describe("runPatch", () => {
 
   afterAll(() => rmSync(repoRoot, { recursive: true, force: true }));
 
-  it("reports accepted: false when the backend does not fix the failure", async () => {
+  it("reports accepted: false and removes the worktree when the backend does not fix the failure", async () => {
     const result = await runPatch(
       repoRoot,
       join(repoRoot, "fixtures/checkout-example"),
       new StubPatchBackend(),
     );
     expect(result.accepted).toBe(false);
+    expect(result.worktreeDir).toBeNull();
   });
 
-  it("reports accepted: true and never touches the main checkout when the backend fixes it", async () => {
+  it("reports accepted: true, keeps the worktree for review, and never touches the main checkout when the backend fixes it", async () => {
     const result = await runPatch(
       repoRoot,
       join(repoRoot, "fixtures/checkout-example"),
       new FixingBackend(),
     );
     expect(result.accepted).toBe(true);
+    expect(result.worktreeDir).not.toBeNull();
+    expect(existsSync(result.worktreeDir!)).toBe(true);
     const { stdout } = await execFileAsync("git", ["status", "--porcelain"], {
       cwd: repoRoot,
     });
     expect(stdout.trim()).toBe("");
+    await execFileAsync(
+      "git",
+      ["worktree", "remove", "--force", result.worktreeDir!],
+      { cwd: repoRoot },
+    );
   });
 });
