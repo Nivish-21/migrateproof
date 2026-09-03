@@ -35,6 +35,12 @@ describe("createWorktree", () => {
     await cleanup();
   });
 
+  it("cleanup is idempotent after the worktree and parent are gone", async () => {
+    const { cleanup } = await createWorktree(repoRoot);
+    await cleanup();
+    await expect(cleanup()).resolves.toBeUndefined();
+  });
+
   it("cleanup removes the worktree directory", async () => {
     const { dir, cleanup } = await createWorktree(repoRoot);
     const parent = dirname(dir);

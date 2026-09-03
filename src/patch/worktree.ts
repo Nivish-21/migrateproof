@@ -15,13 +15,21 @@ export async function createWorktree(
   await execFileAsync("git", ["worktree", "add", "--detach", dir], {
     cwd: repoRoot,
   });
+  let cleaned = false;
   return {
     dir,
     cleanup: async () => {
-      await execFileAsync("git", ["worktree", "remove", "--force", dir], {
-        cwd: repoRoot,
-      });
-      rmdirSync(parent);
+      if (cleaned) return;
+      cleaned = true;
+      try {
+        await execFileAsync("git", ["worktree", "remove", "--force", dir], {
+          cwd: repoRoot,
+        });
+        rmdirSync(parent);
+      } catch (error) {
+        cleaned = false;
+        throw error;
+      }
     },
   };
 }
