@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { execFile } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { createWorktree } from "../../src/patch/worktree.js";
 
@@ -37,7 +37,9 @@ describe("createWorktree", () => {
 
   it("cleanup removes the worktree directory", async () => {
     const { dir, cleanup } = await createWorktree(repoRoot);
+    const parent = dirname(dir);
     await cleanup();
     expect(existsSync(dir)).toBe(false);
+    expect(existsSync(parent)).toBe(false);
   });
 });

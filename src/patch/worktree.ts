@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -21,6 +21,7 @@ export async function createWorktree(
       await execFileAsync("git", ["worktree", "remove", "--force", dir], {
         cwd: repoRoot,
       });
+      rmdirSync(parent);
     },
   };
 }
