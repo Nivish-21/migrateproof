@@ -1,10 +1,11 @@
 import { execFile } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import Docker from "dockerode";
+import { UsageError } from "../../src/errors.js";
 import { runSandboxed } from "../../src/sandbox/runSandboxed.js";
 
 const execFileAsync = promisify(execFile);
@@ -90,6 +91,33 @@ describe.skipIf(!dockerAvailable)("runSandboxed", () => {
     );
     const result = await runSandboxed(consumerRepoDir, patchDir);
     expect(result.log).not.toContain("escalated");
+  }, 30_000);
+
+  it("cleans up (no leaked temp dir, no leaked volume) when consumerRepoDir has no package.json", async () => {
+    const emptyDir = mkdtempSync(join(tmpdir(), "mp-sandbox-empty-"));
+    const before = readdirSync(tmpdir()).filter((f) =>
+      f.startsWith("mp-sandbox-"),
+    );
+    const docker = new Docker();
+    const volumesBefore = await docker.listVolumes();
+    const countBefore = (volumesBefore.Volumes ?? []).filter((v) =>
+      v.Name.startsWith("migrateproof-sandbox-"),
+    ).length;
+
+    await expect(runSandboxed(emptyDir, patchDir)).rejects.toBeInstanceOf(
+      UsageError,
+    );
+
+    const after = readdirSync(tmpdir()).filter((f) =>
+      f.startsWith("mp-sandbox-"),
+    );
+    expect(after.length).toBe(before.length);
+    const volumesAfter = await docker.listVolumes();
+    const countAfter = (volumesAfter.Volumes ?? []).filter((v) =>
+      v.Name.startsWith("migrateproof-sandbox-"),
+    ).length;
+    expect(countAfter).toBe(countBefore);
+    rmSync(emptyDir, { recursive: true, force: true });
   }, 30_000);
 });
 

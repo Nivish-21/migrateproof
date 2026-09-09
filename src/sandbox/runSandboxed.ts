@@ -100,30 +100,36 @@ export async function runSandboxed(
     throw new UsageError(`failed to pull ${IMAGE}: ${message}`);
   }
 
-  const prepSrcDir = mkdtempSync(join(tmpdir(), "mp-sandbox-prep-src-"));
-  const lockfilePath = existsSync(join(consumerRepoDir, "package-lock.json"))
-    ? join(consumerRepoDir, "package-lock.json")
-    : null;
-  cpSync(
-    join(consumerRepoDir, "package.json"),
-    join(prepSrcDir, "package.json"),
-  );
-  if (lockfilePath) {
-    cpSync(lockfilePath, join(prepSrcDir, "package-lock.json"));
-  }
-
   const volumeName = `migrateproof-sandbox-${randomUUID()}`;
-  await docker.createVolume({ Name: volumeName });
-
-  const entrypointDir = mkdtempSync(join(tmpdir(), "mp-sandbox-entrypoint-"));
-  const entrypointPath = join(entrypointDir, "entrypoint.sh");
-  writeFileSync(entrypointPath, ENTRYPOINT_SCRIPT, { mode: 0o755 });
-
+  let prepSrcDir: string | null = null;
+  let entrypointDir: string | null = null;
   let prepLog = "";
   let runLog = "";
   let passed = false;
 
   try {
+    const packageJsonPath = join(consumerRepoDir, "package.json");
+    if (!existsSync(packageJsonPath)) {
+      throw new UsageError(
+        `consumerRepoDir has no package.json: ${consumerRepoDir}`,
+      );
+    }
+
+    prepSrcDir = mkdtempSync(join(tmpdir(), "mp-sandbox-prep-src-"));
+    const lockfilePath = existsSync(join(consumerRepoDir, "package-lock.json"))
+      ? join(consumerRepoDir, "package-lock.json")
+      : null;
+    cpSync(packageJsonPath, join(prepSrcDir, "package.json"));
+    if (lockfilePath) {
+      cpSync(lockfilePath, join(prepSrcDir, "package-lock.json"));
+    }
+
+    await docker.createVolume({ Name: volumeName });
+
+    entrypointDir = mkdtempSync(join(tmpdir(), "mp-sandbox-entrypoint-"));
+    const entrypointPath = join(entrypointDir, "entrypoint.sh");
+    writeFileSync(entrypointPath, ENTRYPOINT_SCRIPT, { mode: 0o755 });
+
     const prepContainer = await docker.createContainer({
       Image: IMAGE,
       Tty: true,
@@ -214,8 +220,8 @@ export async function runSandboxed(
     }
   } finally {
     await removeQuietly(docker.getVolume(volumeName));
-    rmSync(prepSrcDir, { recursive: true, force: true });
-    rmSync(entrypointDir, { recursive: true, force: true });
+    if (entrypointDir) rmSync(entrypointDir, { recursive: true, force: true });
+    if (prepSrcDir) rmSync(prepSrcDir, { recursive: true, force: true });
   }
 
   return { passed, log: `${prepLog}\n${runLog}` };
