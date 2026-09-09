@@ -90,7 +90,7 @@ describe.skipIf(!dockerAvailable)("runSandboxed", () => {
     );
     const result = await runSandboxed(consumerRepoDir, patchDir);
     expect(result.log).not.toContain("escalated");
-  });
+  }, 30_000);
 });
 
 describe("runSandboxed HostConfig hardening (structural, no Docker daemon needed)", () => {

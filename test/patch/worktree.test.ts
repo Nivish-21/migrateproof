@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { execFile } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
+import { UsageError } from "../../src/errors.js";
 import { createWorktree } from "../../src/patch/worktree.js";
 
 const execFileAsync = promisify(execFile);
@@ -47,5 +48,20 @@ describe("createWorktree", () => {
     await cleanup();
     expect(existsSync(dir)).toBe(false);
     expect(existsSync(parent)).toBe(false);
+  });
+
+  it("throws UsageError and leaves no temp directory when git worktree add fails", async () => {
+    const notAGitRepo = mkdtempSync(join(tmpdir(), "mp-not-git-"));
+    const before = readdirSync(tmpdir()).filter((f) =>
+      f.startsWith("mp-worktree-"),
+    );
+    await expect(createWorktree(notAGitRepo)).rejects.toBeInstanceOf(
+      UsageError,
+    );
+    const after = readdirSync(tmpdir()).filter((f) =>
+      f.startsWith("mp-worktree-"),
+    );
+    expect(after.length).toBe(before.length);
+    rmSync(notAGitRepo, { recursive: true, force: true });
   });
 });

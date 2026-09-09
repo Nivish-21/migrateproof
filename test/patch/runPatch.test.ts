@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { UsageError } from "../../src/errors.js";
 import { StubPatchBackend } from "../../src/patch/backends/stub.js";
 import { runPatch } from "../../src/patch/runPatch.js";
 import type {
@@ -101,6 +102,38 @@ describe("runPatch", () => {
       "git",
       ["worktree", "remove", "--force", result.worktreeDir!],
       { cwd: repoRoot },
+    );
+  });
+
+  it("throws UsageError and never calls the backend when v2 already passes", async () => {
+    let backendCalled = false;
+    const trackingBackend: PatchBackend = {
+      async run() {
+        backendCalled = true;
+        return { appliedFiles: [], rawLog: "" };
+      },
+    };
+    await execFileAsync(
+      "git",
+      ["show", "HEAD:fixtures/checkout-example/invariant.ts"],
+      { cwd: repoRoot },
+    ).catch(() => null);
+    writeFileSync(
+      join(repoRoot, "fixtures/checkout-example/invariant.ts"),
+      "export default (_result: unknown) => true;",
+    );
+    await expect(
+      runPatch(
+        repoRoot,
+        join(repoRoot, "fixtures/checkout-example"),
+        trackingBackend,
+      ),
+    ).rejects.toBeInstanceOf(UsageError);
+    expect(backendCalled).toBe(false);
+    // restore the fixture's failing invariant for the other tests in this file
+    writeFileSync(
+      join(repoRoot, "fixtures/checkout-example/invariant.ts"),
+      "export default (result: { tax: number }) => result.tax === 250;",
     );
   });
 });

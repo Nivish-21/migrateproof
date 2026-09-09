@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, rmdirSync } from "node:fs";
+import { mkdtempSync, rmSync, rmdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { UsageError } from "../errors.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -12,9 +13,17 @@ export async function createWorktree(
 ): Promise<{ dir: string; cleanup: () => Promise<void> }> {
   const parent = mkdtempSync(join(tmpdir(), "mp-worktree-"));
   const dir = join(parent, randomUUID());
-  await execFileAsync("git", ["worktree", "add", "--detach", dir], {
-    cwd: repoRoot,
-  });
+  try {
+    await execFileAsync("git", ["worktree", "add", "--detach", dir], {
+      cwd: repoRoot,
+    });
+  } catch (error) {
+    rmSync(parent, { recursive: true, force: true });
+    const message = error instanceof Error ? error.message : String(error);
+    throw new UsageError(
+      `failed to create git worktree: ${message} (common causes: a dirty working tree, git not installed, or ${repoRoot} not being a git repository)`,
+    );
+  }
   let cleaned = false;
   return {
     dir,

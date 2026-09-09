@@ -1,4 +1,5 @@
 import { join, relative } from "node:path";
+import { UsageError } from "../errors.js";
 import { runReplay } from "../replay/runReplay.js";
 import { classifyDiff } from "../semantic-engine/classify.js";
 import { buildPrompt, type PatchBackend } from "./types.js";
@@ -10,6 +11,11 @@ export async function runPatch(
   backend: PatchBackend,
 ): Promise<{ accepted: boolean; rawLog: string; worktreeDir: string | null }> {
   const failureTrace = await runReplay(fixtureDir, "v2");
+  if (failureTrace.passed) {
+    throw new UsageError(
+      `v2 already passes for ${fixtureDir} — nothing to patch`,
+    );
+  }
   const { dir: worktreeDir, cleanup } = await createWorktree(repoRoot);
   try {
     const verdicts = classifyDiff(failureTrace.diff);
