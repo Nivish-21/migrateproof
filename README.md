@@ -4,16 +4,29 @@ MigrateProof proves whether a consumer's real code path and business
 invariant survive a recorded API behaviour change. It replays deterministic
 fixtures, rather than relying on a live API during CI.
 
-## Install
+## Quick Start
 
 ```sh
-npm install -g migrateproof
+git clone https://github.com/Nivish-21/migrateproof.git
+cd MigrateProof
+npm install
+npx tsx src/cli/index.ts replay fixtures/checkout-example --version v1
 ```
 
-Or run the CLI without installing it globally:
+You should see `✓ checkout-total-invariant (v1) — invariant held`. That's
+the whole idea: MigrateProof replayed a stored API response through real
+consumer code and proved the business invariant still holds. `--version
+v2` on the same fixture intentionally fails — see [Replay](#replay) below
+for why.
+
+## Install
+
+_Note: MigrateProof is currently run from local source (`npx tsx src/cli/index.ts`). Global `npm install -g migrateproof` and `npx migrateproof` will be available once published to npm._
+
+To run the CLI from source:
 
 ```sh
-npx migrateproof replay fixtures/checkout-example --version v1
+npx tsx src/cli/index.ts replay fixtures/checkout-example --version v1
 ```
 
 ## Capture
@@ -21,7 +34,7 @@ npx migrateproof replay fixtures/checkout-example --version v1
 Record a JSON response in a fixture version slot:
 
 ```sh
-npx migrateproof capture fixtures/checkout-example --as v1 --from-file ./v1-response.json
+npx tsx src/cli/index.ts capture fixtures/checkout-example --as v1 --from-file ./v1-response.json
 ```
 
 `v1-response.json` can be the response body itself, or an object shaped as
@@ -34,8 +47,8 @@ production data.
 Replay the consumer against a stored response and evaluate its invariant:
 
 ```sh
-npx migrateproof replay fixtures/checkout-example --version v1
-npx migrateproof replay fixtures/checkout-example --version v2 --json
+npx tsx src/cli/index.ts replay fixtures/checkout-example --version v1
+npx tsx src/cli/index.ts replay fixtures/checkout-example --version v2 --json
 ```
 
 `v1` passes for the checkout example. `v2` intentionally fails because the
@@ -48,7 +61,7 @@ After a failed v2 replay, ask the configured Codex backend to propose a fix in
 an isolated git worktree:
 
 ```sh
-npx migrateproof patch fixtures/checkout-example --patch-backend codex
+npx tsx src/cli/index.ts patch fixtures/checkout-example --patch-backend codex
 ```
 
 MigrateProof reruns the v2 replay in that worktree and reports whether the
@@ -126,7 +139,7 @@ jobs:
         with:
           node-version: 20
       - run: npm ci
-      - run: npx migrateproof replay --all --version v2 --json > migrateproof-result.json
+      - run: npx tsx src/cli/index.ts replay --all --version v2 --json > migrateproof-result.json
       - if: always()
         run: node .github/scripts/annotate.js migrateproof-result.json
 ```
