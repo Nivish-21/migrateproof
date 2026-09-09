@@ -121,23 +121,28 @@ describe.skipIf(!dockerAvailable)("runSandboxed", () => {
   }, 30_000);
 
   it("leaves no accumulated containers or volumes after 3 sequential runs", async () => {
+    const docker = new Docker();
+    const volumesBefore = await docker.listVolumes();
+    const countBefore = (volumesBefore.Volumes ?? []).filter((v) =>
+      v.Name.startsWith("migrateproof-sandbox-"),
+    ).length;
+
     for (let i = 0; i < 3; i += 1) {
       const result = await runSandboxed(consumerRepoDir, patchDir);
       expect(result.passed).toBe(true);
     }
-    const docker = new Docker();
+
     const containers = await docker.listContainers({ all: true });
-    const volumes = await docker.listVolumes();
+    const volumesAfter = await docker.listVolumes();
     expect(
       containers.filter(
         (c) => c.Image === "node:20-slim" && c.State === "running",
       ),
     ).toEqual([]);
-    expect(
-      (volumes.Volumes ?? []).filter((v) =>
-        v.Name.startsWith("migrateproof-sandbox-"),
-      ),
-    ).toEqual([]);
+    const countAfter = (volumesAfter.Volumes ?? []).filter((v) =>
+      v.Name.startsWith("migrateproof-sandbox-"),
+    ).length;
+    expect(countAfter).toBe(countBefore);
   }, 120_000);
 });
 
