@@ -55,9 +55,23 @@ export function registerReplayCommand(program: Command): void {
         }
         const version = options.version;
         const cwd = process.cwd();
+        if (options.all && fixtureDirArg) {
+          console.error(
+            "Error: <fixture-dir> and --all cannot be used together",
+          );
+          process.exit(2);
+          return;
+        }
         let directories: string[];
         if (options.all) {
           directories = discoverFixtures(cwd);
+          if (directories.length === 0) {
+            console.error(
+              "Error: --all found no fixtures under fixtures/*/fixture.yaml",
+            );
+            process.exit(2);
+            return;
+          }
         } else {
           if (!fixtureDirArg) {
             console.error(

@@ -22,6 +22,11 @@ export function registerCaptureCommand(program: Command): void {
           if (options.as !== "v1" && options.as !== "v2") {
             throw new UsageError("--as must be v1 or v2");
           }
+          if (options.url && options.fromFile) {
+            throw new UsageError(
+              "--url and --from-file cannot be used together",
+            );
+          }
           const source = options.url
             ? { url: options.url }
             : options.fromFile

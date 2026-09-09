@@ -45,9 +45,15 @@ export async function runCapture(
       body = raw;
     }
   } else {
-    const response = await fetch(source.url, {
-      method: fixture.request.method,
-    });
+    let response: Response;
+    try {
+      response = await fetch(source.url, { method: fixture.request.method });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new UsageError(
+        `--url ${source.url} could not be reached: ${message}`,
+      );
+    }
     status = response.status;
     try {
       body = await response.json();
