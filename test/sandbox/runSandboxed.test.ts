@@ -119,6 +119,22 @@ describe.skipIf(!dockerAvailable)("runSandboxed", () => {
     expect(countAfter).toBe(countBefore);
     rmSync(emptyDir, { recursive: true, force: true });
   }, 30_000);
+
+  it("leaves no accumulated containers or volumes after 3 sequential runs", async () => {
+    for (let i = 0; i < 3; i += 1) {
+      const result = await runSandboxed(consumerRepoDir, patchDir);
+      expect(result.passed).toBe(true);
+    }
+    const docker = new Docker();
+    const containers = await docker.listContainers({ all: true });
+    const volumes = await docker.listVolumes();
+    expect(containers.filter((c) => c.Image === "node:20-slim")).toEqual([]);
+    expect(
+      (volumes.Volumes ?? []).filter((v) =>
+        v.Name.startsWith("migrateproof-sandbox-"),
+      ),
+    ).toEqual([]);
+  }, 120_000);
 });
 
 describe("runSandboxed HostConfig hardening (structural, no Docker daemon needed)", () => {
