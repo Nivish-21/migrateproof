@@ -95,6 +95,18 @@ consumer: ./consumer.ts
 MVP matching is literal: the consumer must make the fixture's exact method and
 URL. Dynamic URLs and real-traffic capture are outside this release's scope.
 
+### V1: auto-extracted invariants
+
+`invariant-extraction` can generate `invariant.ts` automatically from a consumer test file's existing `expect(...)` assertions, instead of writing the predicate by hand. In scope: `expect(<propertyAccessChain>).toBe(<literal>)` and `.toEqual(<literal>)`, where `<propertyAccessChain>` is rooted at the captured result variable (e.g. `result.total`, `result.items[0].price`) and the matcher's argument is itself a literal (number, string, boolean, or `null`). Out of scope, and logged as skipped rather than silently dropped: custom matchers, `toHaveProperty`, `toThrow`, async assertion helpers, multi-statement setup, and any matcher argument that isn't a literal (e.g. a variable reference). A human writes `invariant.ts` by hand for anything skipped, exactly as every fixture already requires without auto-extraction.
+
+### V1: Python impact analysis prerequisite
+
+Python-based impact analysis (`py/impact_analysis.py`) requires Python 3.x on `PATH`. If it isn't found, the command fails with: `python3 not found on PATH — required for Python impact analysis`. This is only required when using Python-specific impact analysis — TypeScript impact analysis (`src/ast/ts/`) has no Python dependency.
+
+### V1: Docker sandbox residual limitation
+
+The sandboxed `patch` execution path installs consumer dependencies with `npm ci --ignore-scripts`, which blocks `postinstall`/`preinstall`/`install`/`prepare` scripts for npm-registry-sourced packages. A git-sourced dependency's own `prepare` script is a known, documented upstream limitation of `--ignore-scripts` this project does not attempt to work around — a consumer project depending on such a package will see that dependency fail to build correctly inside the sandbox. Native Windows is not supported for the Docker sandbox; use WSL2.
+
 ## GitHub Action
 
 Add this workflow to a repository using MigrateProof:

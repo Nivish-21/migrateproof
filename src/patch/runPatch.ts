@@ -1,5 +1,6 @@
 import { join, relative } from "node:path";
 import { runReplay } from "../replay/runReplay.js";
+import { classifyDiff } from "../semantic-engine/classify.js";
 import { buildPrompt, type PatchBackend } from "./types.js";
 import { createWorktree } from "./worktree.js";
 
@@ -11,10 +12,11 @@ export async function runPatch(
   const failureTrace = await runReplay(fixtureDir, "v2");
   const { dir: worktreeDir, cleanup } = await createWorktree(repoRoot);
   try {
+    const verdicts = classifyDiff(failureTrace.diff);
     const result = await backend.run({
       worktreeDir,
       failureTrace,
-      instructions: buildPrompt(failureTrace),
+      instructions: buildPrompt(failureTrace, verdicts),
     });
     const rerun = await runReplay(
       join(worktreeDir, relative(repoRoot, fixtureDir)),
