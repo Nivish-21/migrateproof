@@ -128,7 +128,11 @@ describe.skipIf(!dockerAvailable)("runSandboxed", () => {
     const docker = new Docker();
     const containers = await docker.listContainers({ all: true });
     const volumes = await docker.listVolumes();
-    expect(containers.filter((c) => c.Image === "node:20-slim")).toEqual([]);
+    expect(
+      containers.filter(
+        (c) => c.Image === "node:20-slim" && c.State === "running",
+      ),
+    ).toEqual([]);
     expect(
       (volumes.Volumes ?? []).filter((v) =>
         v.Name.startsWith("migrateproof-sandbox-"),

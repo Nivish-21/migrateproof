@@ -76,4 +76,14 @@ describe("loadFixtureYaml", () => {
     expect(() => loadFixtureYaml(dir)).toThrow(FixtureValidationError);
     rmSync(dir, { recursive: true });
   });
+
+  it("throws FixtureValidationError, not a raw parser exception, on syntactically invalid YAML", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mp-badyaml-"));
+    writeFileSync(
+      join(dir, "fixture.yaml"),
+      "schemaVersion: 1\nname: [unterminated\n",
+    );
+    expect(() => loadFixtureYaml(dir)).toThrow(FixtureValidationError);
+    rmSync(dir, { recursive: true, force: true });
+  });
 });

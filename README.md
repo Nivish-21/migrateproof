@@ -55,6 +55,13 @@ npx tsx src/cli/index.ts replay fixtures/checkout-example --version v2 --json
 recorded tax value changes from `250` to `2.50` while the total invariant still
 expects the original representation.
 
+MigrateProof proves the invariant holds against the _result_ your
+consumer code actually returns. If your consumer's own try/catch
+swallows a real error and returns a default value that happens to satisfy
+the invariant, replay reports a pass — the invariant was checked against
+what your code produced, not against whether it produced it correctly.
+This is a property of testing real code, not a bug.
+
 ## Patch
 
 After a failed v2 replay, ask the configured Codex backend to propose a fix in
@@ -107,6 +114,11 @@ consumer: ./consumer.ts
 
 MVP matching is literal: the consumer must make the fixture's exact method and
 URL. Dynamic URLs and real-traffic capture are outside this release's scope.
+
+The fixture's `request` block captures method and URL only — headers,
+auth tokens, and request bodies are not part of the MVP fixture model.
+An API that requires auth headers to respond correctly cannot be
+represented by a v1/v2 fixture pair yet.
 
 ### V1: auto-extracted invariants
 

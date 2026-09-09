@@ -1,9 +1,14 @@
 import { execFile } from "node:child_process";
-import { resolve } from "node:path";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 
 const execFileAsync = promisify(execFile);
+const require = createRequire(import.meta.url);
+const tsxLoader = require.resolve("tsx");
 const repoRoot = resolve(".");
 
 describe("replay command", () => {
@@ -75,6 +80,39 @@ describe("replay command", () => {
       const commandError = error as { code: number; stderr: string };
       expect(commandError.code).toBe(2);
       expect(commandError.stderr).toContain("--all");
+    }
+  });
+
+  it("reports syntactically invalid fixture.yaml as a usage error, not a stack trace", async () => {
+    const scratchDir = mkdtempSync(join(tmpdir(), "mp-badyaml-cli-"));
+    const fixtureDir = join(scratchDir, "fixtures", "bad");
+    mkdirSync(fixtureDir, { recursive: true });
+    writeFileSync(
+      join(fixtureDir, "fixture.yaml"),
+      "schemaVersion: 1\nname: [unterminated\n",
+    );
+    try {
+      await execFileAsync(
+        "node",
+        [
+          "--import",
+          tsxLoader,
+          join(repoRoot, "src/cli/index.ts"),
+          "replay",
+          "fixtures/bad",
+          "--version",
+          "v1",
+        ],
+        { cwd: scratchDir },
+      );
+      throw new Error("expected replay to reject invalid YAML");
+    } catch (error) {
+      const commandError = error as { code: number; stderr: string };
+      expect(commandError.code).toBe(2);
+      expect(commandError.stderr).toContain("Invalid YAML syntax");
+      expect(commandError.stderr).not.toContain("YAMLException");
+    } finally {
+      rmSync(scratchDir, { recursive: true, force: true });
     }
   });
 });

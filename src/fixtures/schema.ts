@@ -49,8 +49,17 @@ export function loadFixtureYaml(fixtureDir: string): Fixture {
       `Unable to read ${fixturePath}: ${message}`,
     );
   }
-  const parsed = yaml.load(raw);
+  let parsed: unknown;
+  try {
+    parsed = yaml.load(raw);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new FixtureValidationError(
+      `Invalid YAML syntax in ${fixturePath}: ${message}`,
+    );
+  }
   const result = FixtureSchema.safeParse(parsed);
+
   if (!result.success) {
     const messages = result.error.issues.map(
       (issue) => `  - ${issue.path.join(".")}: ${issue.message}`,
