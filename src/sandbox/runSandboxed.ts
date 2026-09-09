@@ -171,7 +171,11 @@ export async function runSandboxed(
         Memory: MEMORY_LIMIT_BYTES,
         NetworkMode: "none",
         ReadonlyRootfs: true,
-        Tmpfs: { "/workdir": `size=${TMPFS_SIZE_MB}m` },
+        // uid/gid=1000 match node:20-slim's built-in "node" user (see User:
+        // "node" below) — without this the tmpfs mount defaults to root
+        // ownership and the entrypoint script's cp into /workdir fails with
+        // permission denied, since the container never runs as root.
+        Tmpfs: { "/workdir": `size=${TMPFS_SIZE_MB}m,uid=1000,gid=1000` },
         SecurityOpt: RUN_CONTAINER_SECURITY_OPT,
         Mounts: [
           {
