@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command, CommanderError } from "commander";
 import { registerCaptureCommand } from "./capture.js";
+import { registerDiagnoseCommand } from "./diagnose.js";
 import { registerInitCommand } from "./init.js";
 import { registerInstallSkillCommand } from "./installSkill.js";
 import { registerPatchCommand } from "./patch.js";
@@ -12,6 +13,7 @@ registerCaptureCommand(program);
 registerInitCommand(program);
 registerInstallSkillCommand(program);
 registerReplayCommand(program);
+registerDiagnoseCommand(program);
 registerPatchCommand(program);
 
 try {
