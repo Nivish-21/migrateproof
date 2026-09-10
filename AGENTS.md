@@ -44,6 +44,10 @@ Run all five before considering any task done — this is what CI checks.
   command-injection history in its own security checklist.
 - Tests live under `test/`, mirroring `src/` structure. TDD: write the
   failing test first, then the minimal implementation.
-- One logical change = one commit (or a small tight group of commits).
-  Don't batch unrelated changes into one commit — it makes the history
-  useless for review.
+- One logical change = one commit (or a small tight group of commits),
+  pushed to `main` when green. Don't batch unrelated changes into one
+  commit — it makes the history useless for review, and don't let commits
+  pile up unpushed — a green local run that never reaches `origin` doesn't
+  help anyone, and CI on `origin/main` is the only place some bugs (e.g.
+  platform-specific Docker permission differences) will ever actually show
+  up.

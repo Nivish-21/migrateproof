@@ -1,4 +1,5 @@
 import Docker from "dockerode";
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   cpSync,
@@ -9,7 +10,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { UsageError } from "../errors.js";
+
+const execFileAsync = promisify(execFile);
 
 const IMAGE = "node:20-slim";
 const TMPFS_SIZE_MB = 512;
@@ -71,6 +75,20 @@ async function removeQuietly(
   }
 }
 
+// mkdtempSync creates directories mode 0700. Docker Desktop on macOS
+// doesn't enforce host-container UID matching on bind mounts, so this is
+// invisible in local dev; native Linux Docker (real CI) does enforce it —
+// a 0700 host directory owned by the CI runner's own uid is unreadable by
+// the container's non-root "node" user (uid 1000), however the two happen
+// to differ. Found via a real GitHub Actions failure
+// ("cp: cannot stat '/src/.': Permission denied"), not assumed.
+async function ensureReadableByContainer(
+  path: string,
+  mode: "a+rX" | "a+rwX",
+): Promise<void> {
+  await execFileAsync("chmod", ["-R", mode, path]);
+}
+
 export async function runSandboxed(
   consumerRepoDir: string,
   patchDir: string,
@@ -123,6 +141,9 @@ export async function runSandboxed(
     if (lockfilePath) {
       cpSync(lockfilePath, join(prepSrcDir, "package-lock.json"));
     }
+    await ensureReadableByContainer(prepSrcDir, "a+rwX");
+    await ensureReadableByContainer(consumerRepoDir, "a+rX");
+    await ensureReadableByContainer(patchDir, "a+rX");
 
     await docker.createVolume({ Name: volumeName });
 
@@ -162,6 +183,13 @@ export async function runSandboxed(
       prepLog = `[prep] ${await readLogs(prepContainer)}`;
       if (prepTimedOut) {
         return { passed: false, log: `${prepLog}\n[prep] timed out` };
+      }
+      const prepInspection = await prepContainer.inspect();
+      if (prepInspection.State.ExitCode !== 0) {
+        return {
+          passed: false,
+          log: `${prepLog}\n[prep] failed (exit ${prepInspection.State.ExitCode})`,
+        };
       }
     } finally {
       await removeQuietly(prepContainer, { force: true });

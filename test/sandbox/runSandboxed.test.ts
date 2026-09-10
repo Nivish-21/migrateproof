@@ -30,7 +30,13 @@ describe.skipIf(!dockerAvailable)("runSandboxed", () => {
     );
     writeFileSync(
       join(consumerRepoDir, "package-lock.json"),
-      JSON.stringify({ lockfileVersion: 3 }),
+      JSON.stringify({
+        name: "consumer",
+        version: "1.0.0",
+        lockfileVersion: 3,
+        requires: true,
+        packages: { "": { name: "consumer", version: "1.0.0" } },
+      }),
     );
     writeFileSync(
       join(consumerRepoDir, "test.js"),
@@ -54,6 +60,23 @@ describe.skipIf(!dockerAvailable)("runSandboxed", () => {
     const result = await runSandboxed(consumerRepoDir, patchDir);
     expect(result.passed).toBe(false);
     expect(result.log).toContain("[prep]");
+  }, 60_000);
+
+  it("short-circuits with passed:false when prep's npm ci fails, without silently proceeding to run npm test", async () => {
+    // A broken lockfile only breaks prep's `npm ci` — the run container's
+    // `npm test` here doesn't touch node_modules, so before this fix
+    // (prep's own exit code was never checked, only its timeout) this
+    // would wrongly report passed:true. Confirms the exit code is now
+    // actually checked, not just re-testing the pre-existing
+    // invalid-package.json test above, which happens to fail downstream
+    // in the run step too and would pass either way.
+    writeFileSync(
+      join(consumerRepoDir, "package-lock.json"),
+      "not valid json at all",
+    );
+    const result = await runSandboxed(consumerRepoDir, patchDir);
+    expect(result.passed).toBe(false);
+    expect(result.log).toContain("[prep] failed");
   }, 60_000);
 
   it("denies a network call from inside the isolated run container, without hanging", async () => {
