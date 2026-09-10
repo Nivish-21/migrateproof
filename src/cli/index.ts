@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 import { Command, CommanderError } from "commander";
 import { registerCaptureCommand } from "./capture.js";
+import { registerInitCommand } from "./init.js";
 import { registerPatchCommand } from "./patch.js";
 import { registerReplayCommand } from "./replay.js";
 
 const program = new Command();
 program.exitOverride();
 registerCaptureCommand(program);
+registerInitCommand(program);
 registerReplayCommand(program);
 registerPatchCommand(program);
 
