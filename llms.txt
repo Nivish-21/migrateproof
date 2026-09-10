@@ -1,0 +1,33 @@
+# MigrateProof
+
+> Proves whether a consumer's real code and business invariant survive a
+> recorded API behaviour change, via deterministic replay — no live API
+> calls during the check itself.
+
+## What it is
+
+A CLI that replays a recorded API response through your actual consumer
+code and checks whether a business rule still holds. Not a static linter
+against known SDKs — it works on any API, including internal/custom ones,
+because it never needs to know the API's shape in advance, only one
+recorded example.
+
+## Commands
+
+- `migrateproof init <name> --method <M> --url <U>` — scaffold a new fixture.
+- `migrateproof capture <fixture-dir> --as v1|v2 --url <U>|--from-file <path>` — record a response.
+- `migrateproof replay <fixture-dir> --version v1|v2 [--json]` — replay it through the real consumer code and check the invariant.
+- `migrateproof diagnose <fixture-dir>` — classify why a v2 replay failed, without Docker.
+- `migrateproof patch <fixture-dir> --patch-backend codex` — propose a fix in an isolated Docker sandbox, empirically re-verified before it's shown to you. Never merges automatically.
+- `migrateproof install-skill` — writes agent-readable setup instructions into the current repository at `.agents/skills/migrateproof/SKILL.md`.
+
+## Fixture format
+
+Three files per fixture: `fixture.yaml` (method, URL, recorded v1/v2
+responses), `consumer.ts` (default-exported async function performing the
+real call), `invariant.ts` (default-exported predicate over the result).
+
+## More detail
+
+Full documentation: https://github.com/Nivish-21/migrateproof#readme
+Security policy: https://github.com/Nivish-21/migrateproof/blob/main/SECURITY.md
