@@ -1,11 +1,39 @@
 {
   "name": "migrateproof",
   "version": "0.1.0",
+  "description": "Proves whether a consumer's real code and business invariant survive a recorded API behaviour change, via deterministic replay — no live API calls.",
+  "keywords": [
+    "api",
+    "migration",
+    "contract-testing",
+    "regression-testing",
+    "ci",
+    "breaking-changes",
+    "cli"
+  ],
   "type": "module",
   "main": "dist/cli/index.js",
-  "bin": { "migrateproof": "dist/cli/index.js" },
-  "files": ["dist", "py", "README.md", "LICENSE"],
-  "engines": { "node": ">=20" },
+  "bin": {
+    "migrateproof": "dist/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "py",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Nivish-21/migrateproof.git"
+  },
+  "homepage": "https://github.com/Nivish-21/migrateproof#readme",
+  "bugs": {
+    "url": "https://github.com/Nivish-21/migrateproof/issues"
+  },
+  "author": "Nivish-21",
   "scripts": {
     "build": "tsc",
     "test": "vitest run",

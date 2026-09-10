@@ -1,5 +1,8 @@
 # MigrateProof
 
+[![CI](https://github.com/Nivish-21/migrateproof/actions/workflows/ci.yml/badge.svg)](https://github.com/Nivish-21/migrateproof/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
 MigrateProof proves whether a consumer's real code path and business
 invariant survive a recorded API behaviour change. It replays deterministic
 fixtures, rather than relying on a live API during CI.
@@ -8,7 +11,7 @@ fixtures, rather than relying on a live API during CI.
 
 ```sh
 git clone https://github.com/Nivish-21/migrateproof.git
-cd MigrateProof
+cd migrateproof
 npm install
 npx tsx src/cli/index.ts replay fixtures/checkout-example --version v1
 ```
