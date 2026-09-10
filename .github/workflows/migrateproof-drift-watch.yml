@@ -1,0 +1,29 @@
+name: MigrateProof Drift Watch
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npm run build
+      - run: npm link
+      - run: node .github/scripts/driftWatch.js
+      - uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore: API drift detected by scheduled check"
+          title: "API drift detected"
+          body: |
+            One or more fixtures' staging endpoint changed in a way that now
+            fails the recorded invariant. Review the updated fixture.yaml
+            and the replay output in the job log before merging.
+          branch: migrateproof/drift-watch

@@ -1,11 +1,6 @@
 // test/cli/init.command.test.ts
 import { execFile } from "node:child_process";
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -40,9 +35,9 @@ describe("init command", () => {
       expect(existsSync(join(fixtureDir, "fixture.yaml"))).toBe(true);
       expect(existsSync(join(fixtureDir, "consumer.ts"))).toBe(true);
       expect(existsSync(join(fixtureDir, "invariant.ts"))).toBe(true);
-      expect(
-        readFileSync(join(fixtureDir, "fixture.yaml"), "utf-8"),
-      ).toContain("https://api.example.com/v1/orders/1");
+      expect(readFileSync(join(fixtureDir, "fixture.yaml"), "utf-8")).toContain(
+        "https://api.example.com/v1/orders/1",
+      );
     } finally {
       rmSync(scratchDir, { recursive: true, force: true });
     }
