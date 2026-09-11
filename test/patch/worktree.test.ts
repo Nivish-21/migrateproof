@@ -52,16 +52,30 @@ describe("createWorktree", () => {
 
   it("throws UsageError and leaves no temp directory when git worktree add fails", async () => {
     const notAGitRepo = mkdtempSync(join(tmpdir(), "mp-not-git-"));
-    const before = readdirSync(tmpdir()).filter((f) =>
-      f.startsWith("mp-worktree-"),
+    const isolatedTmp = mkdtempSync(
+      join(tmpdir(), "mp-worktree-test-isolation-"),
     );
-    await expect(createWorktree(notAGitRepo)).rejects.toBeInstanceOf(
-      UsageError,
-    );
-    const after = readdirSync(tmpdir()).filter((f) =>
-      f.startsWith("mp-worktree-"),
-    );
-    expect(after.length).toBe(before.length);
-    rmSync(notAGitRepo, { recursive: true, force: true });
+    const originalTmpdir = process.env.TMPDIR;
+    process.env.TMPDIR = isolatedTmp;
+    try {
+      const before = readdirSync(isolatedTmp).filter((f) =>
+        f.startsWith("mp-worktree-"),
+      );
+      await expect(createWorktree(notAGitRepo)).rejects.toBeInstanceOf(
+        UsageError,
+      );
+      const after = readdirSync(isolatedTmp).filter((f) =>
+        f.startsWith("mp-worktree-"),
+      );
+      expect(after.length).toBe(before.length);
+    } finally {
+      if (originalTmpdir === undefined) {
+        delete process.env.TMPDIR;
+      } else {
+        process.env.TMPDIR = originalTmpdir;
+      }
+      rmSync(isolatedTmp, { recursive: true, force: true });
+      rmSync(notAGitRepo, { recursive: true, force: true });
+    }
   });
 });
