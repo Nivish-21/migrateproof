@@ -102,7 +102,7 @@ describe.skipIf(!dockerAvailable)("runSandboxed", () => {
     const docker = new Docker();
     const containers = await docker.listContainers({ all: true });
     const leaked = containers.filter(
-      (c) => c.Image === "node:20-slim" && c.State === "running",
+      (c) => c.Image === "node:22-slim" && c.State === "running",
     );
     expect(leaked).toEqual([]);
   }, 30_000);
@@ -159,7 +159,7 @@ describe.skipIf(!dockerAvailable)("runSandboxed", () => {
     const volumesAfter = await docker.listVolumes();
     expect(
       containers.filter(
-        (c) => c.Image === "node:20-slim" && c.State === "running",
+        (c) => c.Image === "node:22-slim" && c.State === "running",
       ),
     ).toEqual([]);
     const countAfter = (volumesAfter.Volumes ?? []).filter((v) =>

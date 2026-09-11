@@ -15,7 +15,7 @@ import { UsageError } from "../errors.js";
 
 const execFileAsync = promisify(execFile);
 
-const IMAGE = "node:20-slim";
+const IMAGE = "node:22-slim";
 const TMPFS_SIZE_MB = 512;
 const MEMORY_HEADROOM_MB = 256;
 const MEMORY_LIMIT_BYTES = (TMPFS_SIZE_MB + MEMORY_HEADROOM_MB) * 1024 * 1024;
@@ -205,7 +205,7 @@ export async function runSandboxed(
         Memory: MEMORY_LIMIT_BYTES,
         NetworkMode: "none",
         ReadonlyRootfs: true,
-        // uid/gid=1000 match node:20-slim's built-in "node" user (see User:
+        // uid/gid=1000 match node:22-slim's built-in "node" user (see User:
         // "node" below) — without this the tmpfs mount defaults to root
         // ownership and the entrypoint script's cp into /workdir fails with
         // permission denied, since the container never runs as root.

@@ -1,6 +1,6 @@
 import { UsageError } from "../errors.js";
 
-const MIN_NODE_MAJOR = 20;
+const MIN_NODE_MAJOR = 22;
 
 export function checkNodeVersion(versionString: string): void {
   const match = /^v?(\d+)\./.exec(versionString);

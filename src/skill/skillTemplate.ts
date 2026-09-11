@@ -15,7 +15,7 @@ never ask just to confirm something you can verify by reading the code.
 
 ## Before doing anything: check the environment
 
-- \`node --version\` — must be >=20.
+- \`node --version\` — must be >=22.
 - \`docker info\` — only needed for the \`patch\` command's sandboxed rerun.
   If it fails, skip \`patch\`, say so, and stop at \`diagnose\` instead of
   failing silently.
