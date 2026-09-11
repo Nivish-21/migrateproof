@@ -54,9 +54,14 @@ npx tsx src/cli/index.ts replay fixtures/checkout-example --version v1
 npx tsx src/cli/index.ts replay fixtures/checkout-example --version v2 --json
 ```
 
-`v1` passes for the checkout example. `v2` intentionally fails because the
-recorded tax value changes from `250` to `2.50` while the total invariant still
-expects the original representation.
+`v1` passes for the checkout example. `v2` intentionally fails: the API's
+`tax` field silently switches from cents (`250`) to dollars (`2.50`)
+while `total` stays `2750` — same field name, same JSON type, so a
+schema-diff tool would wave it straight through. But `total` no longer
+equals `lineItems + tax`, so every order's checkout total silently stops
+reconciling against its own line items. That's the gap MigrateProof
+exists for: proving your actual code against a real response, not
+comparing two schemas.
 
 MigrateProof proves the invariant holds against the _result_ your
 consumer code actually returns. If your consumer's own try/catch
@@ -76,14 +81,14 @@ npx tsx src/cli/index.ts patch fixtures/checkout-example --patch-backend codex
 
 ### Supported backends (`--patch-backend`)
 
-| Backend | CLI Command | Notes |
-|---|---|---|
-| `codex` *(default)* | `codex` | Uses `codex exec` in non-interactive mode |
-| `claude` | `claude` | Claude Code CLI with bypassPermissions in isolated worktree |
-| `gemini` | `gemini` | Gemini CLI with `--yolo` |
-| `copilot` | `copilot` | GitHub Copilot CLI with `--allow-all-tools` |
-| `opencode` | `opencode` | OpenCode with positional prompt and `--dir`/`--auto` |
-| `cursor-agent` | `cursor-agent` | Built from documented CLI syntax; less battle-tested than the other five |
+| Backend             | CLI Command    | Notes                                                                    |
+| ------------------- | -------------- | ------------------------------------------------------------------------ |
+| `codex` _(default)_ | `codex`        | Uses `codex exec` in non-interactive mode                                |
+| `claude`            | `claude`       | Claude Code CLI with bypassPermissions in isolated worktree              |
+| `gemini`            | `gemini`       | Gemini CLI with `--yolo`                                                 |
+| `copilot`           | `copilot`      | GitHub Copilot CLI with `--allow-all-tools`                              |
+| `opencode`          | `opencode`     | OpenCode with positional prompt and `--dir`/`--auto`                     |
+| `cursor-agent`      | `cursor-agent` | Built from documented CLI syntax; less battle-tested than the other five |
 
 MigrateProof runs all backends under a bounded timeout wrapper (default 10 minutes, configurable via `MIGRATEPROOF_BACKEND_TIMEOUT_MS`), then reruns the v2 replay in that worktree and reports whether the proposal is accepted. It never merges a patch automatically.
 

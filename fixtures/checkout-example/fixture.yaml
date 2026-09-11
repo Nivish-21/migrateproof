@@ -2,6 +2,10 @@ schemaVersion: 1
 name: checkout-total-invariant
 description: >
   Consumer checkout flow expects order total to equal sum(lineItems) + tax.
+  v2 flips tax from cents (250) to dollars (2.50) under the same field
+  name and the same JSON type — a change no schema-diff tool would ever
+  flag, but one that silently breaks every order's reconciliation against
+  its own line items.
 request:
   method: GET
   url: https://api.example.com/v1/orders/123

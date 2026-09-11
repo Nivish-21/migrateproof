@@ -7,6 +7,12 @@ Instructions for an AI coding agent working in this repository, to prove
 whether real consumer code survives an API's behaviour change — without
 writing raw YAML or a test file by hand.
 
+## Default to acting, not asking
+
+Do every step below yourself. Only stop and ask a single, specific
+question when guessing would produce a wrong result that looks right —
+never ask just to confirm something you can verify by reading the code.
+
 ## Before doing anything: check the environment
 
 - \`node --version\` — must be >=20.
@@ -19,7 +25,9 @@ writing raw YAML or a test file by hand.
 ## Workflow
 
 1. Given a suspected API behaviour change, find the real call site in this
-   repo (grep for the endpoint URL or the client method name).
+   repo (grep for the endpoint URL or the client method name). If more
+   than one call site matches, don't guess which one — list what you
+   found and ask; a wrong guess here costs more than the question does.
 2. \`npx migrateproof init <name> --method <METHOD> --url <url>\` to
    scaffold \`fixtures/<name>/{fixture.yaml,consumer.ts,invariant.ts}\`.
 3. Edit \`consumer.ts\`: replace the stub with the exact call found in step
@@ -29,7 +37,10 @@ writing raw YAML or a test file by hand.
    \`expect(...)\` assertions against this call's result, prefer running
    MigrateProof's invariant-extraction over this call site instead of
    writing the predicate by hand. Otherwise write the business rule that
-   must hold, directly.
+   must hold. If nothing in the repo states what "correct" means here (no
+   test, no comment, no obvious domain rule), don't invent one — a wrong
+   invariant is worse than no fixture. Ask one specific question naming
+   the field you're unsure about.
 5. \`npx migrateproof capture <fixture-dir> --as v1 --url <the endpoint>\`
    (or \`--from-file\` against a saved response — never production data).
 6. \`npx migrateproof replay <fixture-dir> --version v1\` — must pass
@@ -38,14 +49,17 @@ writing raw YAML or a test file by hand.
    --version v2\`. If it fails, run \`npx migrateproof diagnose
    <fixture-dir>\` next — it's fast and needs no Docker — before reaching
    for \`patch\`.
-8. \`npx migrateproof patch <fixture-dir> --patch-backend codex\` only if a
-   real fix attempt is wanted. It never merges automatically — report the
-   printed worktree path and exact next steps back to whoever is driving
-   this session.
+8. \`npx migrateproof patch <fixture-dir> --patch-backend <backend>\` only
+   if a real fix attempt is wanted. Pick \`<backend>\` to match whichever
+   agent CLI is already running this session, if it's one of: codex,
+   claude, gemini, cursor-agent, copilot, opencode — reusing the running
+   agent avoids a second CLI and a second auth setup. Fall back to
+   \`codex\` only if none of those match. It never merges automatically —
+   report the printed worktree path and exact next steps back to whoever
+   is driving this session.
 
 ## What this does not do
 
-No production data capture, ever. Only one patch backend (\`codex\`) exists
-today. This skill covers *using* the CLI in a consumer repository, not
-MigrateProof's own development.
+No production data capture, ever. This skill covers *using* the CLI in a
+consumer repository, not MigrateProof's own development.
 `;
