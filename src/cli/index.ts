@@ -1,11 +1,23 @@
 #!/usr/bin/env node
 import { Command, CommanderError } from "commander";
 import { registerCaptureCommand } from "./capture.js";
+import { checkNodeVersion } from "./checkNodeVersion.js";
 import { registerDiagnoseCommand } from "./diagnose.js";
+import { UsageError } from "../errors.js";
 import { registerInitCommand } from "./init.js";
 import { registerInstallSkillCommand } from "./installSkill.js";
 import { registerPatchCommand } from "./patch.js";
 import { registerReplayCommand } from "./replay.js";
+
+try {
+  checkNodeVersion(process.version);
+} catch (error) {
+  if (error instanceof UsageError) {
+    console.error(`Error: ${error.message}`);
+    process.exit(2);
+  }
+  throw error;
+}
 
 const program = new Command();
 program.exitOverride();
