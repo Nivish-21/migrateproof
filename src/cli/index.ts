@@ -8,6 +8,7 @@ import { registerInitCommand } from "./init.js";
 import { registerInstallSkillCommand } from "./installSkill.js";
 import { registerPatchCommand } from "./patch.js";
 import { registerReplayCommand } from "./replay.js";
+import { registerScanCommand } from "./scan.js";
 
 try {
   checkNodeVersion(process.version);
@@ -21,6 +22,7 @@ try {
 
 const program = new Command();
 program.exitOverride();
+registerScanCommand(program);
 registerCaptureCommand(program);
 registerInitCommand(program);
 registerInstallSkillCommand(program);

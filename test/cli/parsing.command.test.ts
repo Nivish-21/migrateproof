@@ -47,9 +47,12 @@ describe("CLI argument-parsing errors", () => {
     expect(result.stderr).toContain("unknown command");
   });
 
-  it("exits 2 on bare invocation with no subcommand", async () => {
+  it("routes bare invocation to scan, refusing self-scan when run from repo root", async () => {
     const result = await run([]);
     expect(result.code).toBe(2);
+    expect(result.stderr).toContain(
+      "refusing to scan MigrateProof's own repository",
+    );
   });
 
   it("still exits 0 on --help", async () => {
