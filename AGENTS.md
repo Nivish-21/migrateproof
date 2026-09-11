@@ -51,3 +51,21 @@ Run all five before considering any task done — this is what CI checks.
   help anyone, and CI on `origin/main` is the only place some bugs (e.g.
   platform-specific Docker permission differences) will ever actually show
   up.
+
+## Running tests without cooking the machine
+
+`npm test` (~6s) excludes the Docker sandbox suite. Use `npm run
+test:sandbox` when you touch `src/sandbox/`, and `npm run test:all` before a
+final push. CI runs everything regardless, so nothing is skipped as a gate.
+Parallelism is capped at 4 forks in `vitest.config.ts`; leave it capped.
+
+**Never let a spawned command re-enter this CLI.** `src/mutation/observe.ts`
+runs the target project's `npm test`. If that project's suite invokes
+`scan`, each level forks another full test run without bound — this
+fork-bombed a real machine to 100% CPU on 2026-09-12, and killing the
+processes did not help because parent levels respawned them. Two guards
+exist and must not be removed or weakened: `assertNotSelfScan()` (refuses to
+scan this repository) and `assertNotNestedRun()` (checks the
+`MIGRATEPROOF_OBSERVING` marker). Any test that needs `scan` to actually run
+must target a temp directory, never the repo root. See `docs/lessons.md`.
+
