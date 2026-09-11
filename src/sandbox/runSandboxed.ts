@@ -28,6 +28,68 @@ const RUN_TIMEOUT_MS = 20_000;
 
 export const RUN_CONTAINER_SECURITY_OPT = ["no-new-privileges"];
 
+// Every container and volume this module creates carries this label so a
+// later run can reclaim them. Cleanup here is otherwise done in `finally`
+// blocks, which do not run if the process is killed outright (a test-runner
+// worker timeout, a CI cancellation, Ctrl+C). Without the sweep below, those
+// deaths strand containers in `Created` state and leak volumes indefinitely.
+export const SANDBOX_LABEL = "migrateproof.sandbox";
+
+// Only reclaim leftovers older than this, so a sweep never removes a
+// container belonging to a concurrently-running sandbox. Test runners execute
+// files in parallel by default, so "any labelled leftover" would be wrong.
+const STALE_AFTER_MS = 10 * 60 * 1000;
+
+function volumeCreatedAtMs(info: unknown): number | null {
+  if (typeof info !== "object" || info === null || !("CreatedAt" in info)) {
+    return null;
+  }
+  const { CreatedAt } = info as { CreatedAt?: unknown };
+  if (typeof CreatedAt !== "string") return null;
+  const parsed = Date.parse(CreatedAt);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+export async function sweepStaleSandboxResources(
+  docker: Docker,
+  now: number = Date.now(),
+): Promise<{ containersRemoved: number; volumesRemoved: number }> {
+  let containersRemoved = 0;
+  let volumesRemoved = 0;
+
+  try {
+    const containers = await docker.listContainers({
+      all: true,
+      filters: { label: [SANDBOX_LABEL] },
+    });
+    for (const info of containers) {
+      if (now - info.Created * 1000 < STALE_AFTER_MS) continue;
+      await removeQuietly(docker.getContainer(info.Id), { force: true });
+      containersRemoved += 1;
+    }
+
+    const { Volumes } = await docker.listVolumes({
+      filters: { label: [SANDBOX_LABEL] },
+    });
+    for (const info of Volumes ?? []) {
+      // The daemon returns CreatedAt, but @types/dockerode's
+      // VolumeInspectInfo doesn't declare it — read it defensively rather
+      // than casting, and treat an absent value as "age unknown".
+      const createdAt = volumeCreatedAtMs(info);
+      if (createdAt !== null && now - createdAt < STALE_AFTER_MS) continue;
+      // A volume still attached to a running container fails to remove;
+      // removeQuietly swallows that, which is the desired outcome.
+      await removeQuietly(docker.getVolume(info.Name));
+      volumesRemoved += 1;
+    }
+  } catch {
+    // A sweep failure must never fail the run it precedes — this is
+    // opportunistic reclamation, not a precondition.
+  }
+
+  return { containersRemoved, volumesRemoved };
+}
+
 const ENTRYPOINT_SCRIPT = `#!/bin/sh
 set -e
 cp -r /src/. /workdir/
@@ -118,6 +180,10 @@ export async function runSandboxed(
     throw new UsageError(`failed to pull ${IMAGE}: ${message}`);
   }
 
+  // Reclaim anything a previously-killed run stranded. Opportunistic and
+  // age-gated, so it never touches a concurrently-running sandbox.
+  await sweepStaleSandboxResources(docker);
+
   const volumeName = `migrateproof-sandbox-${randomUUID()}`;
   let prepSrcDir: string | null = null;
   let entrypointDir: string | null = null;
@@ -145,7 +211,10 @@ export async function runSandboxed(
     await ensureReadableByContainer(consumerRepoDir, "a+rX");
     await ensureReadableByContainer(patchDir, "a+rX");
 
-    await docker.createVolume({ Name: volumeName });
+    await docker.createVolume({
+      Name: volumeName,
+      Labels: { [SANDBOX_LABEL]: "true" },
+    });
 
     entrypointDir = mkdtempSync(join(tmpdir(), "mp-sandbox-entrypoint-"));
     const entrypointPath = join(entrypointDir, "entrypoint.sh");
@@ -157,6 +226,7 @@ export async function runSandboxed(
       User: "node",
       WorkingDir: "/prep-src",
       Cmd: ["npm", "ci", "--ignore-scripts"],
+      Labels: { [SANDBOX_LABEL]: "true" },
       HostConfig: {
         Mounts: [
           {
@@ -201,6 +271,7 @@ export async function runSandboxed(
       User: "node",
       WorkingDir: "/workdir",
       Cmd: ["/bin/sh", "/entrypoint.sh"],
+      Labels: { [SANDBOX_LABEL]: "true" },
       HostConfig: {
         Memory: MEMORY_LIMIT_BYTES,
         NetworkMode: "none",

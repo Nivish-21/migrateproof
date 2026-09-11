@@ -1,7 +1,7 @@
 {
   "name": "migrateproof",
   "version": "0.1.0",
-  "description": "Proves whether a consumer's real code and business invariant survive a recorded API behaviour change, via deterministic replay — no live API calls.",
+  "description": "Proves whether a consumer's real code and business invariant survive a recorded API behaviour change, via deterministic replay \u2014 no live API calls.",
   "keywords": [
     "api",
     "migration",
@@ -39,7 +39,9 @@
     "test": "vitest run",
     "lint": "eslint src test --no-error-on-unmatched-pattern",
     "format": "prettier --check src test --no-error-on-unmatched-pattern",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:sandbox": "vitest run --config vitest.sandbox.config.ts",
+    "test:all": "npm test && npm run test:sandbox"
   },
   "license": "Apache-2.0",
   "dependencies": {
