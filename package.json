@@ -1,6 +1,6 @@
 {
   "name": "migrateproof",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Proves whether a consumer's real code and business invariant survive a recorded API behaviour change, via deterministic replay \u2014 no live API calls.",
   "keywords": [
     "api",

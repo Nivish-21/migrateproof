@@ -4,25 +4,47 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 MigrateProof proves whether a consumer's real code path and business
-invariant survive a recorded API behaviour change. It replays deterministic
-fixtures, rather than relying on a live API during CI.
+invariant survive a recorded API behaviour change.
 
 ## Quick Start
 
 ```sh
-git clone https://github.com/Nivish-21/migrateproof.git
-cd migrateproof
-npm install
-npx tsx src/cli/index.ts replay fixtures/checkout-example --version v1
+npx migrateproof
 ```
 
-You should see `✓ checkout-total-invariant (v1) — invariant held`. That's
-the whole idea: MigrateProof replayed a stored API response through real
-consumer code and proved the business invariant still holds. `--version
-v2` on the same fixture intentionally fails — see [Replay](#replay) below
-for why.
+That's it. No config, no files to create, no setup.
 
-## Install
+MigrateProof runs your existing test suite, changes the API responses
+your tests receive (a number becomes a string, a field goes null, an
+amount shifts from cents to dollars), re-runs the affected tests, and
+tells you which changes your suite failed to notice.
+
+A test that passes against real data _and_ against corrupted data is not
+actually checking the thing that got corrupted. That is the gap this
+finds.
+
+## Using it with an AI agent
+
+Most people won't run this by hand. Paste this into your coding agent:
+
+> Run `npx migrateproof` in this repo, then close every gap it reports by
+> strengthening the tests it names. Re-run to verify each fix actually
+> closes the gap. Tell me about anything you couldn't close.
+
+The division of labour is deliberate: MigrateProof finds gaps
+mechanically (no LLM, no guessing), the agent writes the missing
+assertions, and MigrateProof re-checks the fix. The agent never has to
+judge its own work.
+
+## Advanced: proving a specific invariant with fixtures
+
+The zero-config scan above infers gaps from what your tests already
+assert. If you instead want to prove one specific, hand-written business
+rule against a deliberately recorded pair of API responses, use the
+fixture workflow below. It is more work per endpoint and answers a
+different question.
+
+### Install
 
 _Note: MigrateProof is currently run from local source (`npx tsx src/cli/index.ts`). Global `npm install -g migrateproof` and `npx migrateproof` will be available once published to npm._
 
@@ -32,7 +54,7 @@ To run the CLI from source:
 npx tsx src/cli/index.ts replay fixtures/checkout-example --version v1
 ```
 
-## Capture
+### Capture
 
 Record a JSON response in a fixture version slot:
 
@@ -45,7 +67,7 @@ npx tsx src/cli/index.ts capture fixtures/checkout-example --as v1 --from-file .
 to git and run in CI. Never capture live endpoints containing customer or
 production data.
 
-## Replay
+### Replay
 
 Replay the consumer against a stored response and evaluate its invariant:
 
@@ -70,7 +92,7 @@ the invariant, replay reports a pass — the invariant was checked against
 what your code produced, not against whether it produced it correctly.
 This is a property of testing real code, not a bug.
 
-## Patch
+### Patch
 
 After a failed v2 replay, ask a configured AI coding agent backend to propose a fix in
 an isolated git worktree:
@@ -79,7 +101,7 @@ an isolated git worktree:
 npx tsx src/cli/index.ts patch fixtures/checkout-example --patch-backend codex
 ```
 
-### Supported backends (`--patch-backend`)
+#### Supported backends (`--patch-backend`)
 
 | Backend             | CLI Command    | Notes                                                                    |
 | ------------------- | -------------- | ------------------------------------------------------------------------ |
@@ -107,7 +129,7 @@ MigrateProof runs all backends under a bounded timeout wrapper (default 10 minut
   repeatedly without cleaning up, run `git worktree list` /
   `git worktree prune` to clear stale ones.
 
-## Fixture format
+### Fixture format
 
 ```yaml
 schemaVersion: 1
@@ -138,19 +160,19 @@ auth tokens, and request bodies are not part of the MVP fixture model.
 An API that requires auth headers to respond correctly cannot be
 represented by a v1/v2 fixture pair yet.
 
-### V1: auto-extracted invariants
+#### V1: auto-extracted invariants
 
 `invariant-extraction` can generate `invariant.ts` automatically from a consumer test file's existing `expect(...)` assertions, instead of writing the predicate by hand. In scope: `expect(<propertyAccessChain>).toBe(<literal>)` and `.toEqual(<literal>)`, where `<propertyAccessChain>` is rooted at the captured result variable (e.g. `result.total`, `result.items[0].price`) and the matcher's argument is itself a literal (number, string, boolean, or `null`). Out of scope, and logged as skipped rather than silently dropped: custom matchers, `toHaveProperty`, `toThrow`, async assertion helpers, multi-statement setup, and any matcher argument that isn't a literal (e.g. a variable reference). A human writes `invariant.ts` by hand for anything skipped, exactly as every fixture already requires without auto-extraction.
 
-### V1: Python impact analysis prerequisite
+#### V1: Python impact analysis prerequisite
 
 Python-based impact analysis (`py/impact_analysis.py`) requires Python 3.x on `PATH`. If it isn't found, the command fails with: `python3 not found on PATH — required for Python impact analysis`. This is only required when using Python-specific impact analysis — TypeScript impact analysis (`src/ast/ts/`) has no Python dependency.
 
-### V1: Docker sandbox residual limitation
+#### V1: Docker sandbox residual limitation
 
 The sandboxed `patch` execution path installs consumer dependencies with `npm ci --ignore-scripts`, which blocks `postinstall`/`preinstall`/`install`/`prepare` scripts for npm-registry-sourced packages. A git-sourced dependency's own `prepare` script is a known, documented upstream limitation of `--ignore-scripts` this project does not attempt to work around — a consumer project depending on such a package will see that dependency fail to build correctly inside the sandbox. Native Windows is not supported for the Docker sandbox; use WSL2.
 
-## GitHub Action
+### GitHub Action
 
 Add this workflow to a repository using MigrateProof:
 
