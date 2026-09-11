@@ -35,7 +35,7 @@ describe("install-skill command", () => {
       );
       expect(existsSync(skillPath)).toBe(true);
       const content = readFileSync(skillPath, "utf-8");
-      expect(content).toContain("migrateproof init");
+      expect(content).toContain("npx migrateproof");
       expect(content).toContain("do not hand-edit");
     } finally {
       rmSync(scratchDir, { recursive: true, force: true });
