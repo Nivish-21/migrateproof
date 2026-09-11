@@ -25,6 +25,43 @@ export interface ObserveResult {
   sawAnyTraffic: boolean;
 }
 
+/**
+ * Refuses to start an observe pass from inside a test suite that is itself
+ * already being observed.
+ *
+ * Without this, running `migrateproof scan` in a repository whose own test
+ * suite exercises `scan` recurses without bound: the suite spawns a scan, the
+ * scan spawns the suite, each level forking a full test run. It presents as a
+ * machine pinned at 100% CPU with processes that respawn as fast as they are
+ * killed.
+ */
+export function assertNotNestedRun(env: NodeJS.ProcessEnv = process.env): void {
+  if (env.MIGRATEPROOF_OBSERVING === "1") {
+    throw new UsageError(
+      "refusing to run: this test suite is already running under a MigrateProof observe pass. " +
+        "Running `migrateproof scan` from a repository whose own tests invoke scan would recurse without bound.",
+    );
+  }
+}
+
+/**
+ * Refuses to observe MigrateProof's own repository.
+ *
+ * Scanning this repo means running its test suite, which itself invokes the
+ * scan command, which runs the suite again. The env marker set in observe()
+ * stops the *nested* levels, but cannot stop the first one — by then a full
+ * extra test run has already been forked. Since a tool has no reason to
+ * mutation-test itself through its own CLI, refuse outright.
+ */
+export function assertNotSelfScan(packageName: unknown, path: string): void {
+  if (packageName === "migrateproof") {
+    throw new UsageError(
+      `refusing to scan MigrateProof's own repository (${path}): its test suite invokes this command, so scanning it would fork test runs without bound. ` +
+        "Run this from the project you want to check instead.",
+    );
+  }
+}
+
 export function resolveTestCommand(packageJsonPath: string): string[] {
   if (!existsSync(packageJsonPath)) {
     throw new UsageError(
@@ -32,6 +69,11 @@ export function resolveTestCommand(packageJsonPath: string): string[] {
     );
   }
   const parsed: unknown = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
+  const packageName =
+    typeof parsed === "object" && parsed !== null && "name" in parsed
+      ? (parsed as { name?: unknown }).name
+      : undefined;
+  assertNotSelfScan(packageName, packageJsonPath);
   const scripts =
     typeof parsed === "object" && parsed !== null && "scripts" in parsed
       ? (parsed as { scripts?: Record<string, string> }).scripts
@@ -80,6 +122,7 @@ function parseTestCounts(output: string): {
 }
 
 export async function observe(projectRoot: string): Promise<ObserveResult> {
+  assertNotNestedRun();
   const argv = resolveTestCommand(join(projectRoot, "package.json"));
   const [command, ...args] = argv;
   if (command === undefined) {
@@ -114,6 +157,12 @@ export async function observe(projectRoot: string): Promise<ObserveResult> {
         NODE_OPTIONS:
           `${process.env.NODE_OPTIONS ?? ""} --import ${setupModule}`.trim(),
         MIGRATEPROOF_RECORDING_PATH: recordingPath,
+        // Marks the spawned suite as already running under an observe pass.
+        // If that suite itself invokes `migrateproof scan` — which happens
+        // whenever scan is run from a repo whose own tests exercise scan —
+        // the nested run would spawn another suite, and so on without bound.
+        // See assertNotNestedRun() below.
+        MIGRATEPROOF_OBSERVING: "1",
       },
     });
     combinedOutput = `${stdout}\n${stderr}`;
