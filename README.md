@@ -67,15 +67,25 @@ This is a property of testing real code, not a bug.
 
 ## Patch
 
-After a failed v2 replay, ask the configured Codex backend to propose a fix in
+After a failed v2 replay, ask a configured AI coding agent backend to propose a fix in
 an isolated git worktree:
 
 ```sh
 npx tsx src/cli/index.ts patch fixtures/checkout-example --patch-backend codex
 ```
 
-MigrateProof reruns the v2 replay in that worktree and reports whether the
-proposal is accepted. It never merges a patch.
+### Supported backends (`--patch-backend`)
+
+| Backend | CLI Command | Notes |
+|---|---|---|
+| `codex` *(default)* | `codex` | Uses `codex exec` in non-interactive mode |
+| `claude` | `claude` | Claude Code CLI with bypassPermissions in isolated worktree |
+| `gemini` | `gemini` | Gemini CLI with `--yolo` |
+| `copilot` | `copilot` | GitHub Copilot CLI with `--allow-all-tools` |
+| `opencode` | `opencode` | OpenCode with positional prompt and `--dir`/`--auto` |
+| `cursor-agent` | `cursor-agent` | Built from documented CLI syntax; less battle-tested than the other five |
+
+MigrateProof runs all backends under a bounded timeout wrapper (default 10 minutes, configurable via `MIGRATEPROOF_BACKEND_TIMEOUT_MS`), then reruns the v2 replay in that worktree and reports whether the proposal is accepted. It never merges a patch automatically.
 
 - **Rejected** (rerun still fails): the worktree is removed automatically.
 - **Accepted** (rerun passes): the worktree is left on disk and the CLI
