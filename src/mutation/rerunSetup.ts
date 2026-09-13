@@ -15,7 +15,12 @@ function matchesUrl(actualUrl: string, targetUrl: string): boolean {
   try {
     const u1 = new URL(actualUrl, "https://placeholder");
     const u2 = new URL(targetUrl, "https://placeholder");
-    return u1.pathname === u2.pathname;
+    // Host must agree, so two services that happen to share a path are never
+    // confused for each other. The port is deliberately excluded: observe()
+    // strips it from loopback URLs (see normalizeEndpointUrl), because a
+    // per-test server binds a fresh ephemeral port on every run and the
+    // recorded port will never be the one in use during the re-run.
+    return u1.hostname === u2.hostname && u1.pathname === u2.pathname;
   } catch {
     return false;
   }

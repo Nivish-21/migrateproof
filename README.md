@@ -34,14 +34,14 @@ finds.
 
 It needs to see real HTTP traffic from your tests. Concretely:
 
-| Your tests…                                                           | Result                                               |
-| --------------------------------------------------------------------- | ---------------------------------------------------- |
-| call `fetch` and mock at the network layer (`msw`, or a `fetch` stub) | works                                                |
-| mock the module instead (`vi.mock('./apiClient')`)                    | no traffic to observe; reported as such              |
-| hit a local server on a random port each run                          | recorded URL won't match on re-run; reported as such |
-| don't exercise the API at all                                         | reported as unprotected                              |
+| Your tests…                                                           | Result                                         |
+| --------------------------------------------------------------------- | ---------------------------------------------- |
+| call `fetch` and mock at the network layer (`msw`, or a `fetch` stub) | works                                          |
+| mock the module instead (`vi.mock('./apiClient')`)                    | no traffic to observe; reported as such        |
+| spin up a local server on a random port each run                      | works (the port is ignored for loopback hosts) |
+| don't exercise the API at all                                         | reported as unprotected                        |
 
-The last three are limits of the approach, not bugs. It says so in the
+The two unsupported cases are limits of the approach, not bugs. It says so in the
 output rather than reporting a false result.
 
 ## Using it with an AI agent

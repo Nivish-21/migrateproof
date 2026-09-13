@@ -62,6 +62,36 @@ export function assertNotSelfScan(packageName: unknown, path: string): void {
   }
 }
 
+// Hosts where a port is almost always an artefact of the test run rather than
+// part of the service's identity.
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0"]);
+
+/**
+ * Strips the port from loopback URLs so an endpoint keeps one identity across
+ * runs.
+ *
+ * Projects that start an in-process server per test (octokit/request is the
+ * case that surfaced this) bind a random free port each time. Keying an
+ * endpoint on its full URL then splits one logical endpoint into a brand new
+ * one on every execution: the recorded body never matches the re-run, mutation
+ * work is duplicated per port, and the report names endpoints with ports that
+ * no longer exist.
+ *
+ * The port is preserved for non-loopback hosts, where two ports may genuinely
+ * be two different services.
+ */
+export function normalizeEndpointUrl(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    if (LOOPBACK_HOSTS.has(parsed.hostname)) {
+      parsed.port = "";
+    }
+    return parsed.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
 export function resolveTestCommand(packageJsonPath: string): string[] {
   if (!existsSync(packageJsonPath)) {
     throw new UsageError(
@@ -203,7 +233,10 @@ export async function observe(projectRoot: string): Promise<ObserveResult> {
   for (const line of rawLines) {
     try {
       const parsed = JSON.parse(line) as RawRecordedCall;
-      const key = `${parsed.method} ${parsed.url}`;
+      // Normalize before keying so a server bound to a fresh ephemeral port
+      // on each test is still recognised as the same endpoint.
+      const normalizedUrl = normalizeEndpointUrl(parsed.url);
+      const key = `${parsed.method} ${normalizedUrl}`;
       const existing = byKey.get(key);
       if (existing) {
         if (
@@ -215,7 +248,7 @@ export async function observe(projectRoot: string): Promise<ObserveResult> {
       } else {
         byKey.set(key, {
           method: parsed.method,
-          url: parsed.url,
+          url: normalizedUrl,
           status: parsed.status,
           body: parsed.body,
           touchingTests: parsed.touchingTest ? [parsed.touchingTest] : [],
