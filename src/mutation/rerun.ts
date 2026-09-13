@@ -12,32 +12,38 @@ const execFileAsync = promisify(execFile);
 
 const RERUN_TIMEOUT_MS = 60 * 1000;
 
-function parseCounts(output: string): {
+function matchCount(output: string, pattern: RegExp): number {
+  const match = output.match(pattern);
+  return match?.[1] ? parseInt(match[1], 10) : 0;
+}
+
+/**
+ * Reads how many tests ran and how many failed out of a test runner's output.
+ *
+ * Three reporters are recognised. Vitest and jest both spell the words out
+ * ("3 passed", "1 failed", "Tests: 4 total"); node's built-in runner does not,
+ * printing "ℹ tests 40 / ℹ pass 40 / ℹ fail 0" instead. Without the node
+ * patterns a `node --test` suite parsed to nothing and the caller substituted
+ * a placeholder, so a report claimed one test had run when forty had.
+ *
+ * The two families of pattern cannot collide: "pass" followed by whitespace
+ * never occurs inside "passed", and vitest's "Tests:" is separated by a colon
+ * rather than the whitespace the node pattern requires.
+ */
+export function parseCounts(output: string): {
   testsRan: number;
   testsFailed: number;
 } {
-  let testsRan = 0;
-  let testsFailed = 0;
+  const wordyFailed = matchCount(output, /(\d+)\s+failed/i);
+  const wordyPassed = matchCount(output, /(\d+)\s+passed/i);
+  const jestTotal = matchCount(output, /Tests:\s+.*(?:(\d+)\s+total)/i);
+  const nodeTotal = matchCount(output, /\btests\s+(\d+)/i);
+  const nodeFailed = matchCount(output, /\bfail\s+(\d+)/i);
 
-  const failedMatch = output.match(/(\d+)\s+failed/i);
-  if (failedMatch?.[1]) {
-    testsFailed = parseInt(failedMatch[1], 10);
-  }
-
-  const passedMatch = output.match(/(\d+)\s+passed/i);
-  let testsPassed = 0;
-  if (passedMatch?.[1]) {
-    testsPassed = parseInt(passedMatch[1], 10);
-  }
-
-  testsRan = testsFailed + testsPassed;
-
-  const jestTotal = output.match(/Tests:\s+.*(?:(\d+)\s+total)/i);
-  if (jestTotal?.[1]) {
-    testsRan = Math.max(testsRan, parseInt(jestTotal[1], 10));
-  }
-
-  return { testsRan, testsFailed };
+  return {
+    testsRan: Math.max(wordyFailed + wordyPassed, jestTotal, nodeTotal),
+    testsFailed: Math.max(wordyFailed, nodeFailed),
+  };
 }
 
 export async function rerun(
@@ -122,7 +128,10 @@ export async function rerun(
     return { testsRun, testsFailed };
   }
 
-  const testsFailed = parsedFailed;
-  const testsRun = Math.max(parsedRan, 1, call.touchingTests.length);
-  return { testsRun, testsFailed };
+  // Only fall back to the number of attributed tests when the runner's output
+  // gave us nothing to read. Taking the larger of the two unconditionally
+  // overstated the count for any runner whose format we parse correctly.
+  const testsRun =
+    parsedRan > 0 ? parsedRan : Math.max(1, call.touchingTests.length);
+  return { testsRun, testsFailed: parsedFailed };
 }

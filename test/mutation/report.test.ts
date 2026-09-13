@@ -59,6 +59,30 @@ describe("formatReport", () => {
     expect(output).toContain("no tests");
   });
 
+  // Two of the six real projects scanned on 2026-09-13 mock above the HTTP
+  // layer, so nothing was analysable. The report still led with the green
+  // "no gaps" line, which reads as a pass when in fact no mutation ever ran.
+  it("does not claim a pass when no mutation was run at all", () => {
+    const output = formatReport({
+      outcomes: [],
+      unprotected: [],
+      unanalyzable: [
+        { endpoint: "(all endpoints)", reason: "no HTTP traffic observed" },
+      ],
+    });
+    expect(output).not.toContain("no gaps");
+    expect(output).toContain("nothing was analysed");
+  });
+
+  it("does not claim a pass when every endpoint was unprotected", () => {
+    const output = formatReport({
+      outcomes: [],
+      unprotected: ["GET /health"],
+      unanalyzable: [],
+    });
+    expect(output).not.toContain("no gaps");
+  });
+
   it("lists unanalyzable endpoints with their stated reason", () => {
     const output = formatReport({
       outcomes: [],

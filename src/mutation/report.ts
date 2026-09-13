@@ -17,7 +17,14 @@ export function formatReport(report: ScanReport): string {
     (o) => o.classification === "gap",
   );
 
-  if (gaps.length === 0) {
+  if (report.outcomes.length === 0) {
+    // A suite that mocks above the HTTP layer produces no outcomes at all.
+    // Reporting that as "no gaps" reads as a pass when nothing was ever
+    // checked, which is the one result a user must not misread. Two of the
+    // six real projects scanned on 2026-09-13 landed here.
+    lines.push("• nothing was analysed — no mutation ran against any endpoint");
+    lines.push("");
+  } else if (gaps.length === 0) {
     lines.push("✓ no gaps — every mutation was caught by your test suite");
   } else {
     lines.push(`✗ ${gaps.length} gap(s) your test suite would not catch:`);
