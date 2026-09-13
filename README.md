@@ -3,16 +3,23 @@
 [![CI](https://github.com/Nivish-21/migrateproof/actions/workflows/ci.yml/badge.svg)](https://github.com/Nivish-21/migrateproof/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-MigrateProof proves whether a consumer's real code path and business
-invariant survive a recorded API behaviour change.
+Finds the API changes your test suite would silently fail to catch.
+
+> **Status: early, not published to npm.** Run it from a clone (see below).
+> The mechanism works and is verified against real repositories, but no
+> team has used this in anger yet. Treat it as a working prototype, not a
+> dependency.
 
 ## Quick Start
 
 ```sh
-npx migrateproof
+git clone https://github.com/Nivish-21/migrateproof.git
+cd migrateproof && npm install && npm run build
+cd /path/to/your/project
+node /path/to/migrateproof/dist/cli/index.js
 ```
 
-That's it. No config, no files to create, no setup.
+No config and no files to create in your project.
 
 MigrateProof runs your existing test suite, changes the API responses
 your tests receive (a number becomes a string, a field goes null, an
@@ -23,13 +30,28 @@ A test that passes against real data _and_ against corrupted data is not
 actually checking the thing that got corrupted. That is the gap this
 finds.
 
+### Whether it will work on your project
+
+It needs to see real HTTP traffic from your tests. Concretely:
+
+| Your tests…                                                           | Result                                               |
+| --------------------------------------------------------------------- | ---------------------------------------------------- |
+| call `fetch` and mock at the network layer (`msw`, or a `fetch` stub) | works                                                |
+| mock the module instead (`vi.mock('./apiClient')`)                    | no traffic to observe; reported as such              |
+| hit a local server on a random port each run                          | recorded URL won't match on re-run; reported as such |
+| don't exercise the API at all                                         | reported as unprotected                              |
+
+The last three are limits of the approach, not bugs. It says so in the
+output rather than reporting a false result.
+
 ## Using it with an AI agent
 
 Most people won't run this by hand. Paste this into your coding agent:
 
-> Run `npx migrateproof` in this repo, then close every gap it reports by
-> strengthening the tests it names. Re-run to verify each fix actually
-> closes the gap. Tell me about anything you couldn't close.
+> Run `node /path/to/migrateproof/dist/cli/index.js` in this repo, then
+> close every gap it reports by strengthening the tests it names. Re-run
+> to verify each fix actually closes the gap. Tell me about anything you
+> couldn't close.
 
 The division of labour is deliberate: MigrateProof finds gaps
 mechanically (no LLM, no guessing), the agent writes the missing
@@ -46,9 +68,8 @@ different question.
 
 ### Install
 
-_Note: MigrateProof is currently run from local source (`npx tsx src/cli/index.ts`). Global `npm install -g migrateproof` and `npx migrateproof` will be available once published to npm._
-
-To run the CLI from source:
+Same clone-and-build as the Quick Start above. The fixture commands below
+run from inside the MigrateProof checkout.
 
 ```sh
 npx tsx src/cli/index.ts replay fixtures/checkout-example --version v1
@@ -186,8 +207,8 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - run: npm ci
@@ -200,3 +221,21 @@ The Action replays stored v2 fixtures. It does not monitor a live API or
 automatically discover new production breaks.
 
 This workflow uses `pull_request`, not `pull_request_target` — fork PRs never get access to repository secrets, even though fixture code executes in-process during replay.
+
+## Developing MigrateProof itself
+
+```sh
+npm test               # everything except the Docker sandbox suite (~20s)
+npm run test:sandbox   # the Docker sandbox suite only; needs Docker running
+npm run test:all       # both
+npm run lint && npm run typecheck && npm run build
+```
+
+`npm test` excludes the sandbox suite deliberately. That suite starts two
+real containers per test, 18 per run, and only covers the `patch` command,
+so paying for it on every iteration is wasted time and heat. CI runs
+everything, so nothing is skipped as a gate.
+
+The sandbox suite **skips** rather than fails when Docker is not running. A
+green run with Docker closed is not the same as a passing run; check the
+skip count before believing it.

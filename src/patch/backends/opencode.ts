@@ -1,6 +1,9 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { runBackendProcess } from "./runBackendProcess.js";
+import {
+  resolveBackendTimeoutMs,
+  runBackendProcess,
+} from "./runBackendProcess.js";
 import type {
   PatchBackend,
   PatchBackendInput,
@@ -8,7 +11,6 @@ import type {
 } from "../types.js";
 
 const execFileAsync = promisify(execFile);
-const OPENCODE_TIMEOUT_MS = 10 * 60 * 1000;
 
 // Verified against opencode 1.18.20: `opencode run <prompt> --dir <dir>
 // --auto`. `-p` is basic-auth password on this CLI, not prompt — the
@@ -21,7 +23,7 @@ export class OpenCodePatchBackend implements PatchBackend {
       command: "opencode",
       args: ["run", input.instructions, "--dir", input.worktreeDir, "--auto"],
       cwd: input.worktreeDir,
-      timeoutMs: OPENCODE_TIMEOUT_MS,
+      timeoutMs: resolveBackendTimeoutMs(),
     });
     const { stdout: changedFiles } = await execFileAsync(
       "git",

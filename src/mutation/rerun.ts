@@ -51,10 +51,19 @@ export async function rerun(
     throw new UsageError("could not resolve a test command");
   }
 
-  const args = [...baseArgs];
-  if (call.touchingTests.length > 0) {
-    args.push("--", ...call.touchingTests);
+  // Without a test subset this would run the target's entire suite, once per
+  // mutation. That is dozens of full suite runs for a single endpoint, which
+  // is a resource bomb on a stranger's machine, not a slow scan. The caller
+  // (runMutations) already routes unattributed endpoints away from here;
+  // this refuses outright in case another caller ever forgets.
+  if (call.touchingTests.length === 0) {
+    throw new UsageError(
+      `cannot re-run mutations for ${call.method} ${call.url}: no test could be attributed to it, ` +
+        "so the re-run cannot be scoped and would execute the entire suite once per mutation.",
+    );
   }
+
+  const args = [...baseArgs, "--", ...call.touchingTests];
 
   const thisDir = dirname(fileURLToPath(import.meta.url));
   const tsSetup = join(thisDir, "rerunSetup.ts");

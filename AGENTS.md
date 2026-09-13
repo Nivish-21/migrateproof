@@ -5,10 +5,25 @@ repository. Humans: see `README.md` instead.
 
 ## What this repo is
 
-MigrateProof — a CLI that proves whether a consumer's real integration code
-survives an API behaviour change, by replaying recorded fixtures and
-checking a business invariant. TypeScript, Node ESM, zero-dependency at
-replay time (no live network calls — `msw` intercepts everything).
+MigrateProof — a CLI with two workflows over the same idea: does your code
+actually survive an API change?
+
+1. **`scan` (default, zero-config).** Runs the target project's existing
+   test suite under an HTTP interceptor, mutates the API responses those
+   tests receive, re-runs the tests that touched each endpoint, and
+   reports every field whose change nothing caught. No fixtures, no
+   authored files. The project's own assertions are the oracle.
+2. **The fixture workflow** (`init`/`capture`/`replay`/`diagnose`/`patch`).
+   Proves one hand-written business invariant against a deliberately
+   recorded v1/v2 response pair. More setup per endpoint, answers a
+   narrower and better-grounded question. Retained, not deprecated.
+
+TypeScript, Node ESM (>=22). `msw` intercepts network calls; nothing hits a
+live API during replay.
+
+**Project status: early, unpublished, unvalidated.** The mechanism is
+verified against real repositories, but no team has used it yet. Do not add
+features on the assumption that a user base exists.
 
 ## Source of truth
 
@@ -68,4 +83,3 @@ exist and must not be removed or weakened: `assertNotSelfScan()` (refuses to
 scan this repository) and `assertNotNestedRun()` (checks the
 `MIGRATEPROOF_OBSERVING` marker). Any test that needs `scan` to actually run
 must target a temp directory, never the repo root. See `docs/lessons.md`.
-

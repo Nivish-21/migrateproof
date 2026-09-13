@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyMutation,
   generateMutations,
+  MAX_MUTATIONS_PER_RESPONSE,
   type Mutation,
 } from "../../src/mutation/operators.js";
 
@@ -94,5 +95,51 @@ describe("applyMutation", () => {
     ) as Record<string, unknown>;
     expect("tax" in result).toBe(false);
     expect(result.total).toBe(2750);
+  });
+});
+
+describe("mutation count cap", () => {
+  // A scan spawns the target's test runner once per mutation, so an
+  // uncapped set is a direct CPU multiplier on someone else's machine.
+  const wideBody = {
+    id: 1296269,
+    name: "Hello-World",
+    full_name: "octocat/Hello-World",
+    private: false,
+    owner: { login: "octocat", id: 1, type: "User", site_admin: false },
+    description: "This your first repo!",
+    fork: false,
+    forks_count: 9,
+    stargazers_count: 80,
+    watchers_count: 80,
+    size: 108,
+    open_issues_count: 0,
+    topics: ["octocat", "atom"],
+    has_issues: true,
+    archived: false,
+  };
+
+  it("caps mutations so one response cannot trigger dozens of test-suite runs", () => {
+    expect(generateMutations(wideBody).length).toBeLessThanOrEqual(
+      MAX_MUTATIONS_PER_RESPONSE,
+    );
+  });
+
+  it("keeps numeric-scale, the highest-value operator, when the cap applies", () => {
+    const mutations = generateMutations(wideBody);
+    expect(mutations.some((m) => m.operator === "numeric-scale")).toBe(true);
+  });
+
+  it("spreads the cap across operators instead of spending it all on one", () => {
+    const distinct = new Set(
+      generateMutations(wideBody).map((m) => m.operator),
+    );
+    expect(distinct.size).toBeGreaterThan(1);
+  });
+
+  it("returns everything when a small response is under the cap", () => {
+    const mutations = generateMutations({ tax: 250 });
+    expect(mutations.length).toBeLessThan(MAX_MUTATIONS_PER_RESPONSE);
+    expect(mutations.some((m) => m.operator === "remove-field")).toBe(true);
   });
 });

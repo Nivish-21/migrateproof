@@ -1,6 +1,9 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { runBackendProcess } from "./runBackendProcess.js";
+import {
+  resolveBackendTimeoutMs,
+  runBackendProcess,
+} from "./runBackendProcess.js";
 import type {
   PatchBackend,
   PatchBackendInput,
@@ -8,7 +11,6 @@ import type {
 } from "../types.js";
 
 const execFileAsync = promisify(execFile);
-const CURSOR_TIMEOUT_MS = 10 * 60 * 1000;
 
 // NOT verified against a real installed binary — cursor-agent was not
 // available on the machine this plan was written on. Syntax sourced from
@@ -26,7 +28,7 @@ export class CursorAgentPatchBackend implements PatchBackend {
       command: "cursor-agent",
       args: ["-p", input.instructions],
       cwd: input.worktreeDir,
-      timeoutMs: CURSOR_TIMEOUT_MS,
+      timeoutMs: resolveBackendTimeoutMs(),
     });
     const { stdout: changedFiles } = await execFileAsync(
       "git",

@@ -1,6 +1,9 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { runBackendProcess } from "./runBackendProcess.js";
+import {
+  resolveBackendTimeoutMs,
+  runBackendProcess,
+} from "./runBackendProcess.js";
 import type {
   PatchBackend,
   PatchBackendInput,
@@ -8,7 +11,6 @@ import type {
 } from "../types.js";
 
 const execFileAsync = promisify(execFile);
-const GEMINI_TIMEOUT_MS = 10 * 60 * 1000;
 
 // Verified against gemini-cli 0.58.0: `gemini -p <prompt> --yolo`.
 export class GeminiCliPatchBackend implements PatchBackend {
@@ -18,7 +20,7 @@ export class GeminiCliPatchBackend implements PatchBackend {
       command: "gemini",
       args: ["-p", input.instructions, "--yolo"],
       cwd: input.worktreeDir,
-      timeoutMs: GEMINI_TIMEOUT_MS,
+      timeoutMs: resolveBackendTimeoutMs(),
     });
     const { stdout: changedFiles } = await execFileAsync(
       "git",

@@ -1,6 +1,9 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { runBackendProcess } from "./runBackendProcess.js";
+import {
+  resolveBackendTimeoutMs,
+  runBackendProcess,
+} from "./runBackendProcess.js";
 import type {
   PatchBackend,
   PatchBackendInput,
@@ -8,7 +11,6 @@ import type {
 } from "../types.js";
 
 const execFileAsync = promisify(execFile);
-const CLAUDE_TIMEOUT_MS = 10 * 60 * 1000;
 
 // Verified against Claude Code 2.1.236: `claude -p <prompt> --permission-mode
 // bypassPermissions --allowedTools "Bash,Read,Edit,Write"`. Worktree
@@ -28,7 +30,7 @@ export class ClaudeCodePatchBackend implements PatchBackend {
         "Bash,Read,Edit,Write",
       ],
       cwd: input.worktreeDir,
-      timeoutMs: CLAUDE_TIMEOUT_MS,
+      timeoutMs: resolveBackendTimeoutMs(),
     });
     const { stdout: changedFiles } = await execFileAsync(
       "git",

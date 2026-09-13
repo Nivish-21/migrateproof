@@ -7,7 +7,7 @@ vi.mock("node:child_process", () => ({
   execFile: (...args: unknown[]) => execFileMock(...args),
 }));
 
-const { runBackendProcess } =
+const { runBackendProcess, resolveBackendTimeoutMs } =
   await import("../../../src/patch/backends/runBackendProcess.js");
 
 describe("runBackendProcess", () => {
@@ -70,5 +70,33 @@ describe("runBackendProcess", () => {
         timeoutMs: 1000,
       }),
     ).rejects.toThrow(/opencode CLI not found on PATH/);
+  });
+});
+
+describe("resolveBackendTimeoutMs", () => {
+  const TEN_MINUTES = 10 * 60 * 1000;
+
+  it("defaults to ten minutes when unset", () => {
+    expect(resolveBackendTimeoutMs({})).toBe(TEN_MINUTES);
+  });
+
+  it("honours a valid override", () => {
+    expect(
+      resolveBackendTimeoutMs({ MIGRATEPROOF_BACKEND_TIMEOUT_MS: "30000" }),
+    ).toBe(30000);
+  });
+
+  // Zero or negative would kill every backend the instant it started, so a
+  // bad value must fall back rather than be taken literally.
+  it("ignores zero, negative, and non-numeric values", () => {
+    expect(
+      resolveBackendTimeoutMs({ MIGRATEPROOF_BACKEND_TIMEOUT_MS: "0" }),
+    ).toBe(TEN_MINUTES);
+    expect(
+      resolveBackendTimeoutMs({ MIGRATEPROOF_BACKEND_TIMEOUT_MS: "-5000" }),
+    ).toBe(TEN_MINUTES);
+    expect(
+      resolveBackendTimeoutMs({ MIGRATEPROOF_BACKEND_TIMEOUT_MS: "soon" }),
+    ).toBe(TEN_MINUTES);
   });
 });

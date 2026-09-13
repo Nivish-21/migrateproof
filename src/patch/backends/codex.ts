@@ -1,6 +1,9 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { runBackendProcess } from "./runBackendProcess.js";
+import {
+  resolveBackendTimeoutMs,
+  runBackendProcess,
+} from "./runBackendProcess.js";
 import type {
   PatchBackend,
   PatchBackendInput,
@@ -8,7 +11,6 @@ import type {
 } from "../types.js";
 
 const execFileAsync = promisify(execFile);
-const CODEX_TIMEOUT_MS = 10 * 60 * 1000;
 
 // Verified against codex-cli 0.152.1: `codex exec -C <worktree> <prompt>`.
 export class CodexPatchBackend implements PatchBackend {
@@ -18,7 +20,7 @@ export class CodexPatchBackend implements PatchBackend {
       command: "codex",
       args: ["exec", "-C", input.worktreeDir, input.instructions],
       cwd: input.worktreeDir,
-      timeoutMs: CODEX_TIMEOUT_MS,
+      timeoutMs: resolveBackendTimeoutMs(),
     });
     const { stdout: changedFiles } = await execFileAsync(
       "git",

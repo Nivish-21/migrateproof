@@ -66,10 +66,56 @@ function walk(value: unknown, prefix: string, out: Mutation[]): void {
   }
 }
 
+// Each mutation costs one full spawn of the target project's test runner, so
+// this count is a direct multiplier on how long a scan takes and how hard it
+// hits the machine. An unbounded set is not viable: a single realistic API
+// response (a GitHub repo object, measured) generates 59 mutations, which
+// means 59 sequential test-runner startups for one endpoint.
+export const MAX_MUTATIONS_PER_RESPONSE = 12;
+
+// Ordered by how often each models a real, observed API break. When the cap
+// forces a choice, the earlier operators survive. numeric-scale leads because
+// a silent cents-to-dollars shift is the exact failure this tool exists to
+// catch; remove-field trails because a missing field usually breaks loudly on
+// its own and needs no help being noticed.
+const OPERATOR_PRIORITY: MutationOperator[] = [
+  "numeric-scale",
+  "type-flip",
+  "null-field",
+  "empty-array",
+  "remove-field",
+];
+
 export function generateMutations(body: unknown): Mutation[] {
   const out: Mutation[] = [];
   walk(body, "", out);
-  return out;
+
+  if (out.length <= MAX_MUTATIONS_PER_RESPONSE) return out;
+
+  // Round-robin by operator rather than taking the first N, so the cap never
+  // spends every slot on one operator applied to twelve different fields.
+  const byOperator = new Map<MutationOperator, Mutation[]>();
+  for (const mutation of out) {
+    const existing = byOperator.get(mutation.operator) ?? [];
+    existing.push(mutation);
+    byOperator.set(mutation.operator, existing);
+  }
+
+  const selected: Mutation[] = [];
+  let round = 0;
+  while (selected.length < MAX_MUTATIONS_PER_RESPONSE) {
+    let addedThisRound = false;
+    for (const operator of OPERATOR_PRIORITY) {
+      const candidate = byOperator.get(operator)?.[round];
+      if (!candidate) continue;
+      selected.push(candidate);
+      addedThisRound = true;
+      if (selected.length === MAX_MUTATIONS_PER_RESPONSE) break;
+    }
+    if (!addedThisRound) break;
+    round += 1;
+  }
+  return selected;
 }
 
 export function applyMutation(body: unknown, mutation: Mutation): unknown {

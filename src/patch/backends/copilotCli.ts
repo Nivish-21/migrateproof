@@ -1,6 +1,9 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { runBackendProcess } from "./runBackendProcess.js";
+import {
+  resolveBackendTimeoutMs,
+  runBackendProcess,
+} from "./runBackendProcess.js";
 import type {
   PatchBackend,
   PatchBackendInput,
@@ -8,7 +11,6 @@ import type {
 } from "../types.js";
 
 const execFileAsync = promisify(execFile);
-const COPILOT_TIMEOUT_MS = 10 * 60 * 1000;
 
 // Verified against GitHub Copilot CLI 1.0.73: `copilot -p <prompt>
 // --allow-all-tools`.
@@ -19,7 +21,7 @@ export class CopilotCliPatchBackend implements PatchBackend {
       command: "copilot",
       args: ["-p", input.instructions, "--allow-all-tools"],
       cwd: input.worktreeDir,
-      timeoutMs: COPILOT_TIMEOUT_MS,
+      timeoutMs: resolveBackendTimeoutMs(),
     });
     const { stdout: changedFiles } = await execFileAsync(
       "git",
