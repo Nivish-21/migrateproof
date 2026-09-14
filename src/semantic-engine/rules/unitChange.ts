@@ -26,7 +26,7 @@ export function unitChange(
     };
   }
   return {
-    classification: "safe",
+    classification: "breaking",
     explanation: `unit change: ${context.fieldPath} scaled by ${matched} (behavior change — same field, different representation; consumer code must apply the same conversion)`,
   };
 }

@@ -47,9 +47,9 @@ describe("V1 integration: invariant-extraction -> semantic-engine", () => {
     }[] = [
       {
         name: "unit",
-        diff: [{ field: "price", from: 1000, to: 10 }],
-        expected: "safe",
-        expectedBreaking: [{ field: "price", from: 1000, to: 7 }],
+        diff: [{ field: "price", from: 1000, to: 7 }],
+        expected: "unknown",
+        expectedBreaking: [{ field: "price", from: 1000, to: 10 }],
       },
       {
         name: "pagination",
@@ -76,7 +76,9 @@ describe("V1 integration: invariant-extraction -> semantic-engine", () => {
         testCase.expectedBreaking[0].field,
       );
       expect(breakingVerdict?.classification).toBe(
-        testCase.name === "null-meaning" ? "breaking" : "unknown",
+        testCase.name === "null-meaning" || testCase.name === "unit"
+          ? "breaking"
+          : "unknown",
       );
     }
   });

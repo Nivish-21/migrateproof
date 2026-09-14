@@ -11,7 +11,7 @@ describe("classifyChange", () => {
       oldValue: 1000,
       newValue: 10,
     });
-    expect(verdict.classification).toBe("safe");
+    expect(verdict.classification).toBe("breaking");
     expect(verdict.explanation).toContain("unit change");
   });
 
@@ -42,6 +42,6 @@ describe("classifyDiff", () => {
 
   it("keys the map by each diff entry's field path", () => {
     const map = classifyDiff([{ field: "price", from: 1000, to: 10 }]);
-    expect(map.get("price")?.classification).toBe("safe");
+    expect(map.get("price")?.classification).toBe("breaking");
   });
 });
