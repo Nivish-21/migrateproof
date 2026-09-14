@@ -15,6 +15,30 @@ never ask just to confirm something you can verify by reading the code.
 
 ## Workflow
 
+### Migration-aware workflow (when an API change is planned or documented)
+
+1. Read the migration guide, changelog, or spec diff for the upstream API.
+2. Write a \`changes.json\` file describing the breaking changes:
+   - \`api\`: hostname of the API (e.g. \`api.stripe.com\`)
+   - \`source\`: URL or doc reference where you read the changes
+   - \`changes\`: array of changes, each specifying:
+     - \`endpoint\`: e.g. \`GET /v1/charges/{id}\` (method and path; \`{id}\` matches any path segment)
+     - \`field\`: dot path into the response body (e.g. \`amount\` or \`customer.name\`)
+     - \`kind\`: one of \`removed\`, \`now-nullable\`, \`unit-change\` (with \`factor\`),
+       \`type-changed\` (with \`to-type\`), or \`new-enum-value\` (with \`value\`)
+     - \`note\`: optional description of the change
+3. Run \`npx migrateproof --changes changes.json\`.
+   MigrateProof mutates only the specified fields on the matching endpoints
+   and re-runs the affected tests.
+4. For any reported gap:
+   - Read the test files named under \`testFiles\`.
+   - Add the missing assertion or type check that would catch the mutation.
+   - Re-run \`npx migrateproof --changes changes.json\` to verify the gap
+     is now caught.
+5. Report what you closed and anything you could not, with the reason.
+
+### Generic scan workflow (zero-config exploration)
+
 1. Run \`npx migrateproof\`. It runs this project's existing test
    suite, mutates the API responses those tests receive, re-runs the
    affected tests, and reports every field whose change nothing caught.
@@ -32,6 +56,9 @@ never ask just to confirm something you can verify by reading the code.
 
 - **gap** — the suite ran and noticed nothing. This is the actionable
   case, and it is worse than no coverage, because it looks covered.
+- **unmatched** — a change in your changes file was not tested. Either the
+  endpoint was never called during the test suite, or the field did not exist
+  in the recorded response body.
 - **no tests at all** — nothing to strengthen; the endpoint needs a test
   written from scratch. Say so rather than inventing assertions about
   business rules you cannot verify from the code.
@@ -48,3 +75,4 @@ For proving a specific, hand-stated business invariant against recorded
 v1/v2 responses, see the fixture workflow in the README's advanced
 section.
 `;
+

@@ -44,6 +44,91 @@ It needs to see real HTTP traffic from your tests. Concretely:
 The two unsupported cases are limits of the approach, not bugs. It says so in the
 output rather than reporting a false result.
 
+## Driving mutations from an API migration guide (`--changes`)
+
+Running `migrateproof` with no arguments mutates response fields generically
+to explore blind spots.
+
+When upgrading an API dependency, you don't need guesses — you have a
+migration guide or changelog. You can feed those changes directly to
+MigrateProof using `--changes`:
+
+```sh
+node /path/to/migrateproof/dist/cli/index.js scan --changes changes.json
+```
+
+### Changes file format
+
+A JSON file specifying the API hostname, optional metadata, and the list of
+planned changes:
+
+```json
+{
+  "api": "api.stripe.com",
+  "from": "2020-08-27",
+  "to": "2026-01-01",
+  "source": "https://stripe.com/docs/upgrades",
+  "changes": [
+    {
+      "endpoint": "GET /v1/charges/{id}",
+      "field": "amount",
+      "kind": "unit-change",
+      "factor": 100,
+      "note": "amounts now returned in cents"
+    },
+    {
+      "endpoint": "GET /v1/charges/{id}",
+      "field": "customer.name",
+      "kind": "removed"
+    },
+    {
+      "endpoint": "GET /v1/charges/{id}",
+      "field": "receipt_url",
+      "kind": "now-nullable"
+    },
+    {
+      "endpoint": "GET /v1/charges/{id}",
+      "field": "captured",
+      "kind": "type-changed",
+      "to-type": "string"
+    },
+    {
+      "endpoint": "GET /v1/charges/{id}",
+      "field": "status",
+      "kind": "new-enum-value",
+      "value": "requires_capture"
+    }
+  ]
+}
+```
+
+### The five change kinds
+
+| `kind` | What MigrateProof does to the response | Additional fields required |
+|---|---|---|
+| `removed` | Deletes the field (`delete body[field]`) | none |
+| `now-nullable` | Sets the field value to `null` | none |
+| `unit-change` | Multiplies the numeric value by `factor` | `factor` (number) |
+| `type-changed` | Coerces value to the requested type | `to-type` (`"string"` \| `"number"` \| `"boolean"`) |
+| `new-enum-value` | Sets field to an unexpected enum string | `value` (string or null) |
+
+### Endpoint matching
+
+- `endpoint` matches the HTTP method (case-insensitive) and path.
+- Path parameters wrapped in braces like `{id}` match any single path segment.
+- Hostnames match against `api`. (For local test servers, loopback ports are normalized automatically).
+- Changes that do not match any endpoint called during tests, or whose fields do not exist in the recorded response, are reported under an `unmatched` section rather than failing silently.
+
+### The limitation
+
+The tool tests what the changes file says, so a wrong changes file produces a
+confident wrong answer. If you omit a breaking change or describe it incorrectly,
+MigrateProof will report "no gaps" against your flawed specification.
+
+This is why `source` is echoed in the report output: always record where the
+changes came from (documentation URL, migration guide, spec diff) so a human
+reviewer can audit the changes file.
+
 ## Using it with an AI agent
 
 Most people won't run this by hand. Paste this into your coding agent:
