@@ -11,3 +11,6 @@ MigrateProof.md
 # Scratch clones created by scan's live-run verification (Task 45).
 # These carry their own node_modules and .git and can reach hundreds of MB.
 .temp-*/
+
+# Social post images, local only
+linkedin-assets/
