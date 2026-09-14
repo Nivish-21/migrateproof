@@ -1,6 +1,11 @@
 // src/mutation/operators.ts
 export type MutationOperator =
-  "numeric-scale" | "type-flip" | "null-field" | "remove-field" | "empty-array";
+  | "numeric-scale"
+  | "type-flip"
+  | "null-field"
+  | "remove-field"
+  | "empty-array"
+  | "new-enum-value";
 
 export interface Mutation {
   operator: MutationOperator;
