@@ -84,12 +84,69 @@ describe("formatReport", () => {
   });
 
   it("lists unanalyzable endpoints with their stated reason", () => {
-    const output = formatReport({
+    const report: ScanReport = {
       outcomes: [],
       unprotected: [],
       unanalyzable: [{ endpoint: "GET /orders", reason: "mocked above HTTP" }],
-    });
+    };
+    const output = formatReport(report);
     expect(output).toContain("mocked above HTTP");
+  });
+
+  it("says results are guesses when running without a changes file", () => {
+    const output = formatReport({
+      outcomes: [caught],
+      unprotected: [],
+      unanalyzable: [],
+      mode: "generic",
+    });
+    expect(output).toMatch(/guess/i);
+  });
+
+  it("does not call the results guesses when a changes file drove them", () => {
+    const output = formatReport({
+      outcomes: [caught],
+      unprotected: [],
+      unanalyzable: [],
+      mode: "changes",
+    });
+    expect(output).not.toMatch(/guess/i);
+  });
+
+  it("lists unmatched changes with the reason", () => {
+    const output = formatReport({
+      outcomes: [],
+      unprotected: [],
+      unanalyzable: [],
+      mode: "changes",
+      unmatched: [
+        {
+          endpoint: "GET /v1/refunds",
+          field: "reason",
+          reason: "endpoint not called by this codebase",
+        },
+      ],
+    });
+    expect(output).toContain("/v1/refunds");
+    expect(output).toContain("not called");
+  });
+
+  // Same class of bug as Task 30: work that did not happen must not read as a pass.
+  it("does not claim a pass when every change was unmatched", () => {
+    const output = formatReport({
+      outcomes: [],
+      unprotected: [],
+      unanalyzable: [],
+      mode: "changes",
+      unmatched: [
+        {
+          endpoint: "GET /v1/refunds",
+          field: "r",
+          reason: "endpoint not called by this codebase",
+        },
+      ],
+    });
+    expect(output).not.toContain("no gaps");
   });
 });
 

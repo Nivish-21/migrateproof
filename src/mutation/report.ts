@@ -1,10 +1,19 @@
 // src/mutation/report.ts
 import { rankOutcomes, type MutationOutcome } from "./classify.js";
 
+export interface UnmatchedChange {
+  endpoint: string;
+  field: string;
+  reason: string;
+}
+
 export interface ScanReport {
   outcomes: MutationOutcome[];
   unprotected: string[];
   unanalyzable: { endpoint: string; reason: string }[];
+  unmatched?: UnmatchedChange[];
+  mode?: "generic" | "changes";
+  source?: string;
 }
 
 export function hasGaps(report: ScanReport): boolean {
@@ -16,6 +25,16 @@ export function formatReport(report: ScanReport): string {
   const gaps = rankOutcomes(report.outcomes).filter(
     (o) => o.classification === "gap",
   );
+
+  if (report.mode === "generic" && report.outcomes.length > 0) {
+    lines.push(
+      "these mutations are guesses — no changes file was supplied, so the tool",
+    );
+    lines.push(
+      "invented plausible failures rather than testing real ones",
+    );
+    lines.push("");
+  }
 
   if (report.outcomes.length === 0) {
     // A suite that mocks above the HTTP layer produces no outcomes at all.
@@ -62,6 +81,18 @@ export function formatReport(report: ScanReport): string {
     );
     for (const entry of report.unanalyzable) {
       lines.push(`  ${entry.endpoint} — ${entry.reason}`);
+    }
+  }
+
+  if (report.unmatched && report.unmatched.length > 0) {
+    if (lines.length > 0 && lines[lines.length - 1] !== "") {
+      lines.push("");
+    }
+    lines.push(
+      `${report.unmatched.length} change(s) could not be matched:`,
+    );
+    for (const entry of report.unmatched) {
+      lines.push(`  ${entry.endpoint} (${entry.field}) — ${entry.reason}`);
     }
   }
 

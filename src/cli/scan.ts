@@ -11,13 +11,21 @@ export function registerScanCommand(program: Command): void {
       "run your test suite, mutate its API responses, and report what your tests would not catch",
     )
     .option("--json", "emit machine-readable output")
-    .action(async (options: { json?: boolean }, command: Command) => {
-      if (command.args.length > 0) {
-        console.error(`error: unknown command '${command.args[0]}'`);
-        process.exit(2);
-      }
-      try {
-        const report = await runMutations(process.cwd());
+    .option(
+      "--changes <file>",
+      "path to a JSON file describing what the API is changing",
+    )
+    .action(
+      async (
+        options: { json?: boolean; changes?: string },
+        command: Command,
+      ) => {
+        if (command.args.length > 0) {
+          console.error(`error: unknown command '${command.args[0]}'`);
+          process.exit(2);
+        }
+        try {
+          const report = await runMutations(process.cwd(), options.changes);
         if (options.json) {
           console.log(JSON.stringify(report, null, 2));
         } else {
