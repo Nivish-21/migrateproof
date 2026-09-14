@@ -1,0 +1,12 @@
+{
+  "api": "localhost",
+  "changes": [
+    {
+      "endpoint": "GET /charge",
+      "field": "amount",
+      "kind": "unit-change",
+      "factor": 100,
+      "note": "amounts now in cents"
+    }
+  ]
+}
