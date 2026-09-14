@@ -13,6 +13,14 @@ Do every step below yourself. Only stop and ask a single, specific
 question when guessing would produce a wrong result that looks right —
 never ask just to confirm something you can verify by reading the code.
 
+## Running MigrateProof
+
+The steps below invoke it as \`migrateproof\`. It is not yet published to
+npm, so unless it has been installed with \`npm link\` from a clone, replace
+\`migrateproof\` with \`node /path/to/migrateproof/dist/cli/index.js\` in
+every command below — check for a \`migrateproof\` binary on PATH first
+before assuming the long form is needed.
+
 ## Workflow
 
 ### Migration-aware workflow (when an API change is planned or documented)
@@ -27,19 +35,19 @@ never ask just to confirm something you can verify by reading the code.
      - \`kind\`: one of \`removed\`, \`now-nullable\`, \`unit-change\` (with \`factor\`),
        \`type-changed\` (with \`to-type\`), or \`new-enum-value\` (with \`value\`)
      - \`note\`: optional description of the change
-3. Run \`npx migrateproof --changes changes.json\`.
+3. Run \`migrateproof --changes changes.json\`.
    MigrateProof mutates only the specified fields on the matching endpoints
    and re-runs the affected tests.
 4. For any reported gap:
    - Read the test files named under \`testFiles\`.
    - Add the missing assertion or type check that would catch the mutation.
-   - Re-run \`npx migrateproof --changes changes.json\` to verify the gap
+   - Re-run \`migrateproof --changes changes.json\` to verify the gap
      is now caught.
 5. Report what you closed and anything you could not, with the reason.
 
 ### Generic scan workflow (zero-config exploration)
 
-1. Run \`npx migrateproof\`. It runs this project's existing test
+1. Run \`migrateproof\`. It runs this project's existing test
    suite, mutates the API responses those tests receive, re-runs the
    affected tests, and reports every field whose change nothing caught.
    No setup, no config, no files to create.
@@ -47,7 +55,7 @@ never ask just to confirm something you can verify by reading the code.
    test file the report names. A gap means the test ran happily against
    corrupted data — the fix is a real assertion about that field's
    value or type, not a broader smoke test.
-3. Run \`npx migrateproof\` again. The gap you just fixed must now
+3. Run \`migrateproof\` again. The gap you just fixed must now
    report as caught. If it does not, your assertion is not actually
    checking the mutated field.
 4. Report what you closed and anything you could not, with the reason.
