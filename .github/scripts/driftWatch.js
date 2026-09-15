@@ -1,10 +1,15 @@
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import yaml from "js-yaml";
 
 const execFileAsync = promisify(execFile);
+
+export function writeDriftOutput(hasDrift, outputPath = process.env.GITHUB_OUTPUT) {
+  if (!outputPath) return;
+  appendFileSync(outputPath, `drift=${hasDrift}\n`);
+}
 
 export function findFixturesWithStagingUrl(fixturesRoot) {
   if (!existsSync(fixturesRoot)) return [];
@@ -71,6 +76,7 @@ async function main() {
 
   if (drifted.length === 0) {
     console.log("no drift detected");
+    writeDriftOutput(false);
     return;
   }
   console.log(`drift detected in ${drifted.length} fixture(s):`);
@@ -78,6 +84,7 @@ async function main() {
     console.log(`  ${dir}`);
     console.log(replayOutput);
   }
+  writeDriftOutput(true);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

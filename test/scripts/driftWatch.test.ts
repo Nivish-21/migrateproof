@@ -1,6 +1,12 @@
 // test/scripts/driftWatch.test.ts
 import { execFile } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -8,6 +14,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   findFixturesWithStagingUrl,
   hasUncommittedChange,
+  writeDriftOutput,
 } from "../../.github/scripts/driftWatch.js";
 
 const execFileAsync = promisify(execFile);
@@ -50,5 +57,20 @@ describe("hasUncommittedChange", () => {
     expect(await hasUncommittedChange("f.txt", dir)).toBe(false);
     writeFileSync(join(dir, "f.txt"), "b\n");
     expect(await hasUncommittedChange("f.txt", dir)).toBe(true);
+  });
+});
+
+describe("writeDriftOutput", () => {
+  it("appends a drift=<bool> line to the given output file", () => {
+    dir = mkdtempSync(join(tmpdir(), "mp-drift-unit-"));
+    const outputPath = join(dir, "github_output");
+    writeFileSync(outputPath, "");
+    writeDriftOutput(true, outputPath);
+    writeDriftOutput(false, outputPath);
+    expect(readFileSync(outputPath, "utf-8")).toBe("drift=true\ndrift=false\n");
+  });
+
+  it("does nothing when no output path is given", () => {
+    expect(() => writeDriftOutput(true, undefined)).not.toThrow();
   });
 });

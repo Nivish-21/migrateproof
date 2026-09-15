@@ -11,14 +11,18 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: 22
       - run: npm ci
       - run: npm run build
       - run: npm link
-      - run: node .github/scripts/driftWatch.js
-      - uses: peter-evans/create-pull-request@v6
+      - id: watch
+        run: node .github/scripts/driftWatch.js
+      - if: steps.watch.outputs.drift == 'true'
+        uses: peter-evans/create-pull-request@v6
         with:
           commit-message: "chore: API drift detected by scheduled check"
           title: "API drift detected"
