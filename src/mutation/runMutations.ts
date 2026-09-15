@@ -5,6 +5,7 @@ import { parseChangesFile, type ChangesFile } from "../changes/schema.js";
 import { toMutation } from "../changes/toMutation.js";
 import { UsageError } from "../errors.js";
 import { classifyOutcome, type MutationOutcome } from "./classify.js";
+import { detectMockLibraryUsage } from "./detectMockLibrary.js";
 import { observe, type ObservedCall } from "./observe.js";
 import { applyMutation, generateMutations } from "./operators.js";
 import type { ScanReport, UnmatchedChange } from "./report.js";
@@ -57,10 +58,12 @@ export async function runMutations(
   const unanalyzable: { endpoint: string; reason: string }[] = [];
 
   if (observed.testsRan > 0 && !observed.sawAnyTraffic) {
+    const mockHint = detectMockLibraryUsage(projectRoot);
     unanalyzable.push({
       endpoint: "(all endpoints)",
-      reason:
-        "tests ran but no HTTP traffic was observed — the project likely mocks above the HTTP layer",
+      reason: mockHint
+        ? `tests ran but no HTTP traffic was observed — ${mockHint.evidence}, which MigrateProof's interceptor cannot see`
+        : "tests ran but no HTTP traffic was observed — the project likely mocks above the HTTP layer",
     });
     return {
       outcomes,
