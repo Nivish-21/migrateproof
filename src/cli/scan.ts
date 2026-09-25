@@ -2,7 +2,7 @@
 import { Command } from "commander";
 import { UsageError } from "../errors.js";
 import { runMutations } from "../mutation/runMutations.js";
-import { formatReport, hasGaps } from "../mutation/report.js";
+import { exitCodeFor, formatReport } from "../mutation/report.js";
 
 export function registerScanCommand(program: Command): void {
   program
@@ -26,18 +26,19 @@ export function registerScanCommand(program: Command): void {
         }
         try {
           const report = await runMutations(process.cwd(), options.changes);
-        if (options.json) {
-          console.log(JSON.stringify(report, null, 2));
-        } else {
-          console.log(formatReport(report));
+          if (options.json) {
+            console.log(JSON.stringify(report, null, 2));
+          } else {
+            console.log(formatReport(report));
+          }
+          process.exit(exitCodeFor(report));
+        } catch (error) {
+          if (error instanceof UsageError) {
+            console.error(`Error: ${error.message}`);
+            process.exit(2);
+          }
+          throw error;
         }
-        process.exit(hasGaps(report) ? 1 : 0);
-      } catch (error) {
-        if (error instanceof UsageError) {
-          console.error(`Error: ${error.message}`);
-          process.exit(2);
-        }
-        throw error;
-      }
-    });
+      },
+    );
 }

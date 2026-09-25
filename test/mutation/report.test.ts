@@ -1,165 +1,88 @@
-// test/mutation/report.test.ts
 import { describe, expect, it } from "vitest";
 import {
+  deriveVerdict,
+  exitCodeFor,
   formatReport,
-  hasGaps,
   type ScanReport,
 } from "../../src/mutation/report.js";
 import type { MutationOutcome } from "../../src/mutation/classify.js";
 
-const gap: MutationOutcome = {
+const missed: MutationOutcome = {
   endpoint: "GET https://api.example.com/orders/123",
-  mutation: {
-    operator: "type-flip",
-    fieldPath: "tax",
-    before: 250,
-    after: "250",
-    description: 'tax: 250 -> "250" (type-flip)',
+  change: {
+    endpoint: "GET /orders/{id}",
+    field: "tax",
+    kind: "removed",
   },
+  testFiles: ["test/charge.test.ts"],
   testsRun: 3,
   testsFailed: 0,
-  classification: "gap",
+  status: "missed",
 };
 
 const caught: MutationOutcome = {
-  ...gap,
-  classification: "caught",
+  ...missed,
+  status: "caught",
   testsFailed: 1,
 };
 
-describe("formatReport", () => {
-  it("names the endpoint, the field, and the test count for a gap", () => {
-    const report: ScanReport = {
-      outcomes: [gap],
-      unprotected: [],
-      unanalyzable: [],
-    };
-    const output = formatReport(report);
-    expect(output).toContain("tax");
-    expect(output).toContain("orders/123");
-    expect(output).toContain("3");
-  });
+const incomplete: MutationOutcome = {
+  ...missed,
+  status: "incomplete",
+  testsRun: 0,
+  reason: "the mutation response was not confirmed",
+  nextAction: "run the selected test through globalThis.fetch",
+};
 
-  it("reports a clean result when there are no gaps", () => {
-    const output = formatReport({
-      outcomes: [caught],
-      unprotected: [],
-      unanalyzable: [],
-    });
-    expect(output).toContain("no gaps");
-  });
+function report(outcomes: MutationOutcome[]): ScanReport {
+  return {
+    verdict: deriveVerdict(outcomes),
+    outcomes,
+    mode: "changes",
+    source: "https://api.example.com/changelog",
+  };
+}
 
-  it("lists unprotected endpoints separately from gaps", () => {
-    const output = formatReport({
-      outcomes: [],
-      unprotected: ["GET /health"],
-      unanalyzable: [],
-    });
-    expect(output).toContain("/health");
-    expect(output).toContain("no tests");
-  });
-
-  // Two of the six real projects scanned on 2026-09-13 mock above the HTTP
-  // layer, so nothing was analysable. The report still led with the green
-  // "no gaps" line, which reads as a pass when in fact no mutation ever ran.
-  it("does not claim a pass when no mutation was run at all", () => {
-    const output = formatReport({
-      outcomes: [],
-      unprotected: [],
-      unanalyzable: [
-        { endpoint: "(all endpoints)", reason: "no HTTP traffic observed" },
-      ],
-    });
-    expect(output).not.toContain("no gaps");
-    expect(output).toContain("nothing was analysed");
-  });
-
-  it("does not claim a pass when every endpoint was unprotected", () => {
-    const output = formatReport({
-      outcomes: [],
-      unprotected: ["GET /health"],
-      unanalyzable: [],
-    });
-    expect(output).not.toContain("no gaps");
-  });
-
-  it("lists unanalyzable endpoints with their stated reason", () => {
-    const report: ScanReport = {
-      outcomes: [],
-      unprotected: [],
-      unanalyzable: [{ endpoint: "GET /orders", reason: "mocked above HTTP" }],
-    };
-    const output = formatReport(report);
-    expect(output).toContain("mocked above HTTP");
-  });
-
-  it("says results are guesses when running without a changes file", () => {
-    const output = formatReport({
-      outcomes: [caught],
-      unprotected: [],
-      unanalyzable: [],
-      mode: "generic",
-    });
-    expect(output).toMatch(/guess/i);
-  });
-
-  it("does not call the results guesses when a changes file drove them", () => {
-    const output = formatReport({
-      outcomes: [caught],
-      unprotected: [],
-      unanalyzable: [],
-      mode: "changes",
-    });
-    expect(output).not.toMatch(/guess/i);
-  });
-
-  it("lists unmatched changes with the reason", () => {
-    const output = formatReport({
-      outcomes: [],
-      unprotected: [],
-      unanalyzable: [],
-      mode: "changes",
-      unmatched: [
-        {
-          endpoint: "GET /v1/refunds",
-          field: "reason",
-          reason: "endpoint not called by this codebase",
-        },
-      ],
-    });
-    expect(output).toContain("/v1/refunds");
-    expect(output).toContain("not called");
-  });
-
-  // Same class of bug as Task 30: work that did not happen must not read as a pass.
-  it("does not claim a pass when every change was unmatched", () => {
-    const output = formatReport({
-      outcomes: [],
-      unprotected: [],
-      unanalyzable: [],
-      mode: "changes",
-      unmatched: [
-        {
-          endpoint: "GET /v1/refunds",
-          field: "r",
-          reason: "endpoint not called by this codebase",
-        },
-      ],
-    });
-    expect(output).not.toContain("no gaps");
+describe("report verdicts", () => {
+  it.each([
+    [[caught], "protected", 0],
+    [[missed], "gaps", 1],
+    [[incomplete], "incomplete", 2],
+    [[missed, incomplete], "gaps", 1],
+  ] as const)("derives %s as %s with exit %i", (outcomes, verdict, exit) => {
+    const scanReport = report(outcomes);
+    expect(deriveVerdict(outcomes)).toBe(verdict);
+    expect(exitCodeFor(scanReport)).toBe(exit);
   });
 });
 
-describe("hasGaps", () => {
-  it("is true when any outcome is a gap", () => {
-    expect(
-      hasGaps({ outcomes: [gap], unprotected: [], unanalyzable: [] }),
-    ).toBe(true);
+describe("formatReport", () => {
+  it("renders statuses, source, and selected test files", () => {
+    const output = formatReport(report([caught, missed, incomplete]));
+    expect(output).toContain("Caught");
+    expect(output).toContain("Missed");
+    expect(output).toContain("Cannot prove");
+    expect(output).toContain("test/charge.test.ts");
+    expect(output).toContain("https://api.example.com/changelog");
   });
 
-  it("is false when every outcome was caught", () => {
-    expect(
-      hasGaps({ outcomes: [caught], unprotected: [], unanalyzable: [] }),
-    ).toBe(false);
+  it("keeps the complete contract in JSON", () => {
+    const json = JSON.parse(JSON.stringify(report([incomplete]))) as ScanReport;
+    expect(json).toMatchObject({
+      verdict: "incomplete",
+      outcomes: [
+        {
+          change: { field: "tax" },
+          testFiles: ["test/charge.test.ts"],
+          reason: "the mutation response was not confirmed",
+          nextAction: "run the selected test through globalThis.fetch",
+        },
+      ],
+    });
+  });
+
+  it("labels generic results as exploratory", () => {
+    const output = formatReport({ ...report([caught]), mode: "generic" });
+    expect(output).toMatch(/guess/i);
   });
 });

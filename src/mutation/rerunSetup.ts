@@ -1,8 +1,8 @@
-// src/mutation/rerunSetup.ts
-// Injected into the target project's test process during the rerun pass.
-// Serves the mutated response for the target endpoint.
+import { writeFileSync } from "node:fs";
 
 const configRaw = process.env.MIGRATEPROOF_MUTATION_CONFIG;
+const resultPath = process.env.MIGRATEPROOF_MUTATION_RESULT_PATH;
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0"]);
 
 interface MutationConfig {
   method: string;
@@ -11,19 +11,35 @@ interface MutationConfig {
 }
 
 function matchesUrl(actualUrl: string, targetUrl: string): boolean {
-  if (actualUrl === targetUrl) return true;
   try {
-    const u1 = new URL(actualUrl, "https://placeholder");
-    const u2 = new URL(targetUrl, "https://placeholder");
-    // Host must agree, so two services that happen to share a path are never
-    // confused for each other. The port is deliberately excluded: observe()
-    // strips it from loopback URLs (see normalizeEndpointUrl), because a
-    // per-test server binds a fresh ephemeral port on every run and the
-    // recorded port will never be the one in use during the re-run.
-    return u1.hostname === u2.hostname && u1.pathname === u2.pathname;
+    const actual = new URL(actualUrl, "https://placeholder");
+    const target = new URL(targetUrl, "https://placeholder");
+    const ignoresPort = LOOPBACK_HOSTS.has(actual.hostname);
+    return (
+      actual.hostname === target.hostname &&
+      actual.pathname === target.pathname &&
+      actual.search === target.search &&
+      (ignoresPort || actual.port === target.port)
+    );
   } catch {
     return false;
   }
+}
+
+function requestUrl(input: unknown): string {
+  if (typeof input === "string") return input;
+  if (input && typeof input === "object" && "url" in input) {
+    return String((input as { url: unknown }).url);
+  }
+  return String(input);
+}
+
+function requestMethod(input: unknown, init?: RequestInit): string {
+  if (init?.method) return init.method.toUpperCase();
+  if (input && typeof input === "object" && "method" in input) {
+    return String((input as { method: unknown }).method).toUpperCase();
+  }
+  return "GET";
 }
 
 if (configRaw) {
@@ -42,41 +58,35 @@ if (configRaw) {
         this: unknown,
         input: unknown,
         init?: RequestInit,
-      ) {
-        const rawUrl =
-          typeof input === "string"
-            ? input
-            : input && typeof input === "object" && "url" in input
-              ? (input as { url: string }).url
-              : String(input);
-        const actualMethod = (init?.method ?? "GET").toUpperCase();
-
-        if (matchesUrl(rawUrl, config.url) && actualMethod === targetMethod) {
+      ): Promise<Response> {
+        if (
+          matchesUrl(requestUrl(input), config.url) &&
+          requestMethod(input, init) === targetMethod
+        ) {
           let originalStatus = 200;
           let originalStatusText = "OK";
           const originalHeaders = new Headers();
-
           try {
-            const res = await (
+            const response = await (
               fn as (...args: unknown[]) => Promise<Response>
             ).call(this, input, init);
-            originalStatus = res.status;
-            originalStatusText = res.statusText;
-            for (const [k, v] of res.headers.entries()) {
-              originalHeaders.set(k, v);
+            originalStatus = response.status;
+            originalStatusText = response.statusText;
+            for (const [key, value] of response.headers.entries()) {
+              originalHeaders.set(key, value);
             }
           } catch {
-            // Handler may error or not exist; continue with fallback
+            // The intercepted response intentionally replaces a failed live call.
           }
-
           originalHeaders.set("content-type", "application/json");
-          return new Response(JSON.stringify(config.mutatedBody), {
+          const response = new Response(JSON.stringify(config.mutatedBody), {
             status: originalStatus,
             statusText: originalStatusText,
             headers: originalHeaders,
           });
+          if (resultPath) writeFileSync(resultPath, '{"served":true}');
+          return response;
         }
-
         return (fn as (...args: unknown[]) => Promise<Response>).call(
           this,
           input,
@@ -88,7 +98,6 @@ if (configRaw) {
     };
 
     const originalDefineProperty = Object.defineProperty;
-
     Object.defineProperty = function <T>(
       target: T,
       prop: PropertyKey,
@@ -105,7 +114,7 @@ if (configRaw) {
       return originalDefineProperty(target, prop, descriptor);
     };
 
-    let activeFetch = wrap(globalThis.fetch);
+    let activeFetch = wrap(globalThis.fetch) as typeof globalThis.fetch;
     try {
       Object.defineProperty(globalThis, "fetch", {
         configurable: true,
@@ -114,13 +123,13 @@ if (configRaw) {
           return activeFetch;
         },
         set(newFetch) {
-          activeFetch = wrap(newFetch);
+          activeFetch = wrap(newFetch) as typeof globalThis.fetch;
         },
       });
     } catch {
-      // If not configurable, already wrapped
+      // A non-configurable fetch still remains wrapped through the initial value.
     }
   } catch {
-    // Config parsing error
+    // Malformed configuration must not crash the target suite; no marker means incomplete.
   }
 }

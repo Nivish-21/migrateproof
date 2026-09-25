@@ -12,6 +12,36 @@ const require = createRequire(import.meta.url);
 const tsxLoader = require.resolve("tsx");
 const repoRoot = resolve(".");
 
+async function runScan(dir: string): Promise<{
+  exitCode: number;
+  stdout: string;
+}> {
+  try {
+    const result = await execFileAsync(
+      "node",
+      [
+        "--import",
+        tsxLoader,
+        join(repoRoot, "src/cli/index.ts"),
+        "scan",
+        "--changes",
+        "changes.json",
+        "--json",
+      ],
+      { cwd: dir },
+    );
+    return { exitCode: 0, stdout: result.stdout };
+  } catch (error: unknown) {
+    if (error && typeof error === "object" && "code" in error) {
+      return {
+        exitCode: (error as { code: number }).code,
+        stdout: (error as { stdout?: string }).stdout ?? "",
+      };
+    }
+    throw error;
+  }
+}
+
 describe("scan command", () => {
   it("exits 2 with a clear message when the project has no test script", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mp-scan-"));
@@ -51,6 +81,33 @@ describe("scan command", () => {
       ).rejects.toMatchObject({
         code: 2,
         stderr: expect.stringContaining('no "test" script'),
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("exits 2 with an incomplete JSON verdict when the baseline fails", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mp-scan-baseline-"));
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({
+        name: "x",
+        scripts: { test: 'node -e "process.exit(1)"' },
+      }),
+    );
+    writeFileSync(
+      join(dir, "changes.json"),
+      JSON.stringify({
+        api: "api.example.com",
+        changes: [{ endpoint: "GET /orders", field: "id", kind: "removed" }],
+      }),
+    );
+    try {
+      const baselineFailure = await runScan(dir);
+      expect(baselineFailure.exitCode).toBe(2);
+      expect(JSON.parse(baselineFailure.stdout)).toMatchObject({
+        verdict: "incomplete",
       });
     } finally {
       rmSync(dir, { recursive: true, force: true });

@@ -1,4 +1,3 @@
-// test/mutation/runMutations.changes.test.ts
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +7,29 @@ import * as observeModule from "../../src/mutation/observe.js";
 import * as rerunModule from "../../src/mutation/rerun.js";
 import { UsageError } from "../../src/errors.js";
 
+const change = {
+  endpoint: "GET /v1/charges/{id}",
+  field: "amount",
+  kind: "unit-change",
+  factor: 100,
+};
+
+function observed(
+  calls: typeof observeModule.observe extends (
+    ...args: never[]
+  ) => Promise<infer Result>
+    ? Result["calls"]
+    : never = [],
+): Awaited<ReturnType<typeof observeModule.observe>> {
+  return {
+    calls,
+    testsRan: 1,
+    failingTests: [],
+    sawAnyTraffic: calls.length > 0,
+    baseline: { passed: true },
+  };
+}
+
 describe("runMutations with changes file", () => {
   let tmpDir: string;
   let changesPath: string;
@@ -15,6 +37,14 @@ describe("runMutations with changes file", () => {
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "migrateproof-test-changes-"));
     changesPath = join(tmpDir, "changes.json");
+    writeFileSync(
+      changesPath,
+      JSON.stringify({
+        api: "api.stripe.com",
+        source: "https://stripe.com/docs/upgrades",
+        changes: [change],
+      }),
+    );
   });
 
   afterEach(() => {
@@ -28,104 +58,74 @@ describe("runMutations with changes file", () => {
     ).rejects.toThrow(UsageError);
   });
 
-  it("lands in unmatched when endpoint is not called by the codebase", async () => {
-    writeFileSync(
-      changesPath,
-      JSON.stringify({
-        api: "api.stripe.com",
-        source: "https://stripe.com/docs/upgrades",
-        changes: [
-          {
-            endpoint: "GET /v1/refunds",
-            field: "reason",
-            kind: "removed",
-          },
-        ],
-      }),
-    );
-
+  it("returns every requested change as incomplete when the baseline failed", async () => {
     vi.spyOn(observeModule, "observe").mockResolvedValueOnce({
-      calls: [
+      ...observed(),
+      baseline: { passed: false, exitCode: 1 },
+    });
+    const rerunSpy = vi.spyOn(rerunModule, "rerun");
+
+    const report = await runMutations("/fake/project", changesPath);
+
+    expect(report.verdict).toBe("incomplete");
+    expect(report.outcomes[0]).toMatchObject({
+      status: "incomplete",
+      change,
+      reason: expect.stringContaining("baseline"),
+      nextAction: expect.any(String),
+    });
+    expect(rerunSpy).not.toHaveBeenCalled();
+  });
+
+  it("makes an unmatched endpoint incomplete instead of dropping it", async () => {
+    vi.spyOn(observeModule, "observe").mockResolvedValueOnce(
+      observed([
         {
           method: "GET",
-          url: "https://api.stripe.com/v1/charges/ch_123",
+          url: "https://api.stripe.com/v1/refunds/re_123",
           status: 200,
           body: { amount: 1000 },
-          touchingTests: ["test/charge.test.ts"],
+          touchingTests: ["test/refund.test.ts"],
         },
-      ],
-      testsRan: 1,
-      failingTests: [],
-      sawAnyTraffic: true,
-    });
+      ]),
+    );
 
     const report = await runMutations("/fake/project", changesPath);
-    expect(report.mode).toBe("changes");
-    expect(report.source).toBe("https://stripe.com/docs/upgrades");
-    expect(report.unmatched).toHaveLength(1);
-    expect(report.unmatched?.[0]?.endpoint).toBe("GET /v1/refunds");
-    expect(report.unmatched?.[0]?.field).toBe("reason");
-    expect(report.unmatched?.[0]?.reason).toBe(
-      "endpoint not called by this codebase",
-    );
+    expect(report.outcomes).toMatchObject([
+      {
+        change,
+        status: "incomplete",
+        reason: "endpoint not called by this codebase",
+        nextAction: expect.any(String),
+      },
+    ]);
   });
 
-  it("lands in unmatched when field is absent from the recorded body", async () => {
-    writeFileSync(
-      changesPath,
-      JSON.stringify({
-        api: "api.stripe.com",
-        changes: [
-          {
-            endpoint: "GET /v1/charges/{id}",
-            field: "customer.email",
-            kind: "removed",
-          },
-        ],
-      }),
-    );
-
-    vi.spyOn(observeModule, "observe").mockResolvedValueOnce({
-      calls: [
+  it("makes an absent field incomplete with the observed test files", async () => {
+    vi.spyOn(observeModule, "observe").mockResolvedValueOnce(
+      observed([
         {
           method: "GET",
           url: "https://api.stripe.com/v1/charges/ch_123",
           status: 200,
-          body: { amount: 1000, customer: { id: "cus_1" } },
+          body: { customer: { id: "cus_1" } },
           touchingTests: ["test/charge.test.ts"],
         },
-      ],
-      testsRan: 1,
-      failingTests: [],
-      sawAnyTraffic: true,
-    });
-
-    const report = await runMutations("/fake/project", changesPath);
-    expect(report.mode).toBe("changes");
-    expect(report.unmatched).toHaveLength(1);
-    expect(report.unmatched?.[0]?.endpoint).toBe("GET /v1/charges/{id}");
-    expect(report.unmatched?.[0]?.field).toBe("customer.email");
-    expect(report.unmatched?.[0]?.reason).toContain("not present");
-  });
-
-  it("routes matching change with no touching tests to unprotected", async () => {
-    writeFileSync(
-      changesPath,
-      JSON.stringify({
-        api: "api.stripe.com",
-        changes: [
-          {
-            endpoint: "GET /v1/charges/{id}",
-            field: "amount",
-            kind: "unit-change",
-            factor: 100,
-          },
-        ],
-      }),
+      ]),
     );
 
-    vi.spyOn(observeModule, "observe").mockResolvedValueOnce({
-      calls: [
+    const report = await runMutations("/fake/project", changesPath);
+    expect(report.outcomes[0]).toMatchObject({
+      status: "incomplete",
+      testFiles: ["test/charge.test.ts"],
+      reason: expect.stringContaining("not present"),
+      nextAction: expect.any(String),
+    });
+  });
+
+  it("makes a matching endpoint with no touching test incomplete", async () => {
+    vi.spyOn(observeModule, "observe").mockResolvedValueOnce(
+      observed([
         {
           method: "GET",
           url: "https://api.stripe.com/v1/charges/ch_123",
@@ -133,37 +133,59 @@ describe("runMutations with changes file", () => {
           body: { amount: 1000 },
           touchingTests: [],
         },
-      ],
-      testsRan: 1,
-      failingTests: [],
-      sawAnyTraffic: true,
+      ]),
+    );
+
+    const report = await runMutations("/fake/project", changesPath);
+    expect(report.outcomes[0]).toMatchObject({
+      status: "incomplete",
+      testFiles: [],
+      reason: expect.stringContaining("no test"),
+      nextAction: expect.any(String),
+    });
+  });
+
+  it("makes no observed traffic incomplete for every requested change", async () => {
+    vi.spyOn(observeModule, "observe").mockResolvedValueOnce(observed());
+
+    const report = await runMutations("/fake/project", changesPath);
+    expect(report.outcomes[0]).toMatchObject({
+      change,
+      status: "incomplete",
+      nextAction: expect.any(String),
+    });
+  });
+
+  it("keeps an unconfirmed rerun incomplete", async () => {
+    vi.spyOn(observeModule, "observe").mockResolvedValueOnce(
+      observed([
+        {
+          method: "GET",
+          url: "https://api.stripe.com/v1/charges/ch_123",
+          status: 200,
+          body: { amount: 1000 },
+          touchingTests: ["test/z.test.ts", "test/a.test.ts"],
+        },
+      ]),
+    );
+    vi.spyOn(rerunModule, "rerun").mockResolvedValueOnce({
+      kind: "incomplete",
+      testsRun: 1,
+      reason: "the mutation response was not confirmed",
+      nextAction: "run the selected test through globalThis.fetch",
     });
 
     const report = await runMutations("/fake/project", changesPath);
-    expect(report.unprotected).toEqual([
-      "GET https://api.stripe.com/v1/charges/ch_123",
-    ]);
-    expect(report.outcomes).toHaveLength(0);
+    expect(report.outcomes[0]).toMatchObject({
+      status: "incomplete",
+      testFiles: ["test/a.test.ts", "test/z.test.ts"],
+      nextAction: expect.any(String),
+    });
   });
 
-  it("executes mutation when endpoint matches and field is present", async () => {
-    writeFileSync(
-      changesPath,
-      JSON.stringify({
-        api: "api.stripe.com",
-        changes: [
-          {
-            endpoint: "GET /v1/charges/{id}",
-            field: "amount",
-            kind: "unit-change",
-            factor: 100,
-          },
-        ],
-      }),
-    );
-
-    vi.spyOn(observeModule, "observe").mockResolvedValueOnce({
-      calls: [
+  it("reports a confirmed passing rerun as missed", async () => {
+    vi.spyOn(observeModule, "observe").mockResolvedValueOnce(
+      observed([
         {
           method: "GET",
           url: "https://api.stripe.com/v1/charges/ch_123",
@@ -171,23 +193,100 @@ describe("runMutations with changes file", () => {
           body: { amount: 1000 },
           touchingTests: ["test/charge.test.ts"],
         },
-      ],
-      testsRan: 1,
-      failingTests: [],
-      sawAnyTraffic: true,
+      ]),
+    );
+    vi.spyOn(rerunModule, "rerun").mockResolvedValueOnce({
+      kind: "completed",
+      testsRun: 2,
+      testsFailed: 0,
     });
 
+    const report = await runMutations("/fake/project", changesPath);
+    expect(report).toMatchObject({
+      verdict: "gaps",
+      outcomes: [{ status: "missed", testFiles: ["test/charge.test.ts"] }],
+    });
+  });
+
+  it("reports a confirmed failing rerun as caught", async () => {
+    vi.spyOn(observeModule, "observe").mockResolvedValueOnce(
+      observed([
+        {
+          method: "GET",
+          url: "https://api.stripe.com/v1/charges/ch_123",
+          status: 200,
+          body: { amount: 1000 },
+          touchingTests: ["test/charge.test.ts"],
+        },
+      ]),
+    );
     vi.spyOn(rerunModule, "rerun").mockResolvedValueOnce({
+      kind: "completed",
       testsRun: 2,
       testsFailed: 1,
     });
 
     const report = await runMutations("/fake/project", changesPath);
-    expect(report.outcomes).toHaveLength(1);
-    expect(report.outcomes[0]?.classification).toBe("caught");
-    expect(report.outcomes[0]?.mutation.after).toBe(100000);
-    expect(report.outcomes[0]?.endpoint).toBe(
-      "GET https://api.stripe.com/v1/charges/ch_123",
+    expect(report).toMatchObject({
+      verdict: "protected",
+      outcomes: [{ status: "caught", testFiles: ["test/charge.test.ts"] }],
+    });
+  });
+
+  it("aggregates repeated calls conservatively and preserves every source test", async () => {
+    vi.spyOn(observeModule, "observe").mockResolvedValueOnce(
+      observed([
+        {
+          method: "GET",
+          url: "https://api.stripe.com/v1/charges/ch_1",
+          status: 200,
+          body: { amount: 1000 },
+          touchingTests: ["test/caught.test.ts"],
+        },
+        {
+          method: "GET",
+          url: "https://api.stripe.com/v1/charges/ch_2",
+          status: 200,
+          body: { amount: 1000 },
+          touchingTests: ["test/incomplete.test.ts"],
+        },
+        {
+          method: "GET",
+          url: "https://api.stripe.com/v1/charges/ch_3",
+          status: 200,
+          body: { amount: 1000 },
+          touchingTests: ["test/missed.test.ts"],
+        },
+      ]),
     );
+    vi.spyOn(rerunModule, "rerun")
+      .mockResolvedValueOnce({
+        kind: "completed",
+        testsRun: 1,
+        testsFailed: 1,
+      })
+      .mockResolvedValueOnce({
+        kind: "incomplete",
+        testsRun: 1,
+        reason: "the mutation response was not confirmed",
+        nextAction: "run the selected test through globalThis.fetch",
+      })
+      .mockResolvedValueOnce({
+        kind: "completed",
+        testsRun: 1,
+        testsFailed: 0,
+      });
+
+    const report = await runMutations("/fake/project", changesPath);
+    expect(report.outcomes).toMatchObject([
+      {
+        status: "missed",
+        testFiles: [
+          "test/caught.test.ts",
+          "test/incomplete.test.ts",
+          "test/missed.test.ts",
+        ],
+      },
+    ]);
   });
 });

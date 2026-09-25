@@ -1,99 +1,76 @@
-// src/mutation/report.ts
 import { rankOutcomes, type MutationOutcome } from "./classify.js";
 
-export interface UnmatchedChange {
-  endpoint: string;
-  field: string;
-  reason: string;
-}
+export type Verdict = "protected" | "gaps" | "incomplete";
 
 export interface ScanReport {
+  verdict: Verdict;
   outcomes: MutationOutcome[];
-  unprotected: string[];
-  unanalyzable: { endpoint: string; reason: string }[];
-  unmatched?: UnmatchedChange[];
-  mode?: "generic" | "changes";
+  mode: "generic" | "changes";
   source?: string;
 }
 
-export function hasGaps(report: ScanReport): boolean {
-  return report.outcomes.some((o) => o.classification === "gap");
+export function deriveVerdict(outcomes: MutationOutcome[]): Verdict {
+  if (outcomes.some((outcome) => outcome.status === "missed")) return "gaps";
+  if (outcomes.some((outcome) => outcome.status === "incomplete")) {
+    return "incomplete";
+  }
+  return outcomes.length > 0 ? "protected" : "incomplete";
+}
+
+export function exitCodeFor(report: ScanReport): 0 | 1 | 2 {
+  if (report.verdict === "protected") return 0;
+  return report.verdict === "gaps" ? 1 : 2;
+}
+
+function outcomeDescription(outcome: MutationOutcome): string {
+  if (outcome.mutation) return outcome.mutation.description;
+  if (outcome.change) {
+    return `${outcome.change.endpoint} (${outcome.change.field})`;
+  }
+  return outcome.endpoint;
 }
 
 export function formatReport(report: ScanReport): string {
   const lines: string[] = [];
-  const gaps = rankOutcomes(report.outcomes).filter(
-    (o) => o.classification === "gap",
-  );
 
-  if (report.mode === "generic" && report.outcomes.length > 0) {
+  if (report.mode === "generic") {
     lines.push(
       "these mutations are guesses — no changes file was supplied, so the tool",
-    );
-    lines.push(
       "invented plausible failures rather than testing real ones",
+      "",
     );
-    lines.push("");
   }
+  if (report.source) lines.push(`Source: ${report.source}`, "");
 
-  if (report.outcomes.length === 0) {
-    // A suite that mocks above the HTTP layer produces no outcomes at all.
-    // Reporting that as "no gaps" reads as a pass when nothing was ever
-    // checked, which is the one result a user must not misread. Two of the
-    // six real projects scanned on 2026-09-13 landed here.
-    lines.push("• nothing was analysed — no mutation ran against any endpoint");
-    lines.push("");
-  } else if (gaps.length === 0) {
-    lines.push("✓ no gaps — every mutation was caught by your test suite");
+  if (report.verdict === "protected") {
+    lines.push("✓ Protected — every confirmed mutation was caught.");
+  } else if (report.verdict === "gaps") {
+    lines.push("✗ Gaps — at least one confirmed mutation was missed.");
   } else {
-    lines.push(`✗ ${gaps.length} gap(s) your test suite would not catch:`);
-    lines.push("");
-    const byEndpoint = new Map<string, MutationOutcome[]>();
-    for (const gap of gaps) {
-      const existing = byEndpoint.get(gap.endpoint) ?? [];
-      existing.push(gap);
-      byEndpoint.set(gap.endpoint, existing);
-    }
-    for (const [endpoint, endpointGaps] of byEndpoint) {
-      lines.push(`  ${endpoint}`);
-      for (const gap of endpointGaps) {
-        lines.push(
-          `    ${gap.mutation.description} — ${gap.testsRun} test(s) ran, none failed`,
-        );
-      }
-      lines.push("");
-    }
+    lines.push(
+      "? Cannot prove — one or more requested mutations were incomplete.",
+    );
   }
 
-  if (report.unprotected.length > 0) {
-    lines.push(
-      `${report.unprotected.length} endpoint(s) have no tests at all:`,
-    );
-    for (const endpoint of report.unprotected) {
-      lines.push(`  ${endpoint}`);
+  for (const outcome of rankOutcomes(report.outcomes)) {
+    const label =
+      outcome.status === "caught"
+        ? "Caught"
+        : outcome.status === "missed"
+          ? "Missed"
+          : "Cannot prove";
+    lines.push("", `${label}: ${outcomeDescription(outcome)}`);
+    lines.push(`  ${outcome.endpoint}`);
+    if (outcome.testFiles.length > 0) {
+      lines.push(`  tests: ${outcome.testFiles.join(", ")}`);
     }
-    lines.push("");
-  }
-
-  if (report.unanalyzable.length > 0) {
-    lines.push(
-      `${report.unanalyzable.length} endpoint(s) could not be analyzed:`,
-    );
-    for (const entry of report.unanalyzable) {
-      lines.push(`  ${entry.endpoint} — ${entry.reason}`);
+    if (outcome.status !== "incomplete") {
+      lines.push(
+        `  ${outcome.testsRun} test(s) ran, ${outcome.testsFailed} failed`,
+      );
     }
-  }
-
-  if (report.unmatched && report.unmatched.length > 0) {
-    if (lines.length > 0 && lines[lines.length - 1] !== "") {
-      lines.push("");
-    }
-    lines.push(
-      `${report.unmatched.length} change(s) could not be matched:`,
-    );
-    for (const entry of report.unmatched) {
-      lines.push(`  ${entry.endpoint} (${entry.field}) — ${entry.reason}`);
-    }
+    if (outcome.reason) lines.push(`  reason: ${outcome.reason}`);
+    if (outcome.nextAction) lines.push(`  next: ${outcome.nextAction}`);
   }
 
   return lines.join("\n");

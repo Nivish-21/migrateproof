@@ -1,35 +1,29 @@
-// src/mutation/rerun.ts
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { resolveTestCommand, type ObservedCall } from "./observe.js";
-import type { RerunResult } from "./runMutations.js";
 import { UsageError } from "../errors.js";
+import { resolveTestCommand, type ObservedCall } from "./observe.js";
 
 const execFileAsync = promisify(execFile);
-
 const RERUN_TIMEOUT_MS = 60 * 1000;
+
+export type RerunResult =
+  | { kind: "completed"; testsRun: number; testsFailed: number }
+  | {
+      kind: "incomplete";
+      testsRun: number;
+      reason: string;
+      nextAction: string;
+    };
 
 function matchCount(output: string, pattern: RegExp): number {
   const match = output.match(pattern);
   return match?.[1] ? parseInt(match[1], 10) : 0;
 }
 
-/**
- * Reads how many tests ran and how many failed out of a test runner's output.
- *
- * Three reporters are recognised. Vitest and jest both spell the words out
- * ("3 passed", "1 failed", "Tests: 4 total"); node's built-in runner does not,
- * printing "ℹ tests 40 / ℹ pass 40 / ℹ fail 0" instead. Without the node
- * patterns a `node --test` suite parsed to nothing and the caller substituted
- * a placeholder, so a report claimed one test had run when forty had.
- *
- * The two families of pattern cannot collide: "pass" followed by whitespace
- * never occurs inside "passed", and vitest's "Tests:" is separated by a colon
- * rather than the whitespace the node pattern requires.
- */
 export function parseCounts(output: string): {
   testsRan: number;
   testsFailed: number;
@@ -46,6 +40,23 @@ export function parseCounts(output: string): {
   };
 }
 
+function incomplete(
+  testsRun: number,
+  reason: string,
+  nextAction: string,
+): RerunResult {
+  return { kind: "incomplete", testsRun, reason, nextAction };
+}
+
+function hasConfirmation(path: string): boolean {
+  try {
+    JSON.parse(readFileSync(path, "utf-8"));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function rerun(
   projectRoot: string,
   call: ObservedCall,
@@ -56,12 +67,6 @@ export async function rerun(
   if (command === undefined) {
     throw new UsageError("could not resolve a test command");
   }
-
-  // Without a test subset this would run the target's entire suite, once per
-  // mutation. That is dozens of full suite runs for a single endpoint, which
-  // is a resource bomb on a stranger's machine, not a slow scan. The caller
-  // (runMutations) already routes unattributed endpoints away from here;
-  // this refuses outright in case another caller ever forgets.
   if (call.touchingTests.length === 0) {
     throw new UsageError(
       `cannot re-run mutations for ${call.method} ${call.url}: no test could be attributed to it, ` +
@@ -70,11 +75,17 @@ export async function rerun(
   }
 
   const args = [...baseArgs, "--", ...call.touchingTests];
-
   const thisDir = dirname(fileURLToPath(import.meta.url));
   const tsSetup = join(thisDir, "rerunSetup.ts");
   const jsSetup = join(thisDir, "rerunSetup.js");
   const setupModule = existsSync(tsSetup) ? tsSetup : jsSetup;
+  const resultPath = join(
+    projectRoot,
+    "node_modules",
+    `.migrateproof-mutation-${randomUUID()}.json`,
+  );
+  mkdirSync(dirname(resultPath), { recursive: true });
+  rmSync(resultPath, { force: true });
 
   const mutationConfig = JSON.stringify({
     method: call.method,
@@ -83,8 +94,13 @@ export async function rerun(
   });
 
   let output = "";
-  let didThrow = false;
-
+  let executionError:
+    | {
+        killed?: unknown;
+        code?: unknown;
+        signal?: unknown;
+      }
+    | undefined;
   try {
     const { stdout, stderr } = await execFileAsync(command, args, {
       cwd: projectRoot,
@@ -94,11 +110,11 @@ export async function rerun(
         NODE_OPTIONS:
           `${process.env.NODE_OPTIONS ?? ""} --import ${setupModule}`.trim(),
         MIGRATEPROOF_MUTATION_CONFIG: mutationConfig,
+        MIGRATEPROOF_MUTATION_RESULT_PATH: resultPath,
       },
     });
     output = `${stdout}\n${stderr}`;
   } catch (error: unknown) {
-    didThrow = true;
     if (
       error &&
       typeof error === "object" &&
@@ -110,28 +126,49 @@ export async function rerun(
       );
     }
     if (error && typeof error === "object") {
-      const execErr = error as { stdout?: string; stderr?: string };
-      output = `${execErr.stdout ?? ""}\n${execErr.stderr ?? ""}`;
+      const execError = error as {
+        stdout?: string;
+        stderr?: string;
+        killed?: unknown;
+        code?: unknown;
+        signal?: unknown;
+      };
+      output = `${execError.stdout ?? ""}\n${execError.stderr ?? ""}`;
+      executionError = execError;
     }
   }
 
-  const { testsRan: parsedRan, testsFailed: parsedFailed } =
-    parseCounts(output);
+  const { testsRan, testsFailed } = parseCounts(output);
+  const confirmed = hasConfirmation(resultPath);
+  rmSync(resultPath, { force: true });
 
-  if (didThrow) {
-    const testsFailed = Math.max(parsedFailed, 1);
-    const testsRun = Math.max(
-      parsedRan,
-      testsFailed,
-      call.touchingTests.length,
+  if (executionError?.killed === true) {
+    return incomplete(
+      testsRan,
+      "the selected test run timed out",
+      "make the selected test finish within the rerun timeout",
     );
-    return { testsRun, testsFailed };
   }
-
-  // Only fall back to the number of attributed tests when the runner's output
-  // gave us nothing to read. Taking the larger of the two unconditionally
-  // overstated the count for any runner whose format we parse correctly.
-  const testsRun =
-    parsedRan > 0 ? parsedRan : Math.max(1, call.touchingTests.length);
-  return { testsRun, testsFailed: parsedFailed };
+  if (testsRan === 0) {
+    return incomplete(
+      0,
+      "the selected test run did not report any parseable tests",
+      "configure the test runner to report test counts",
+    );
+  }
+  if (!confirmed) {
+    return incomplete(
+      testsRan,
+      "the mutation response was not confirmed by the interceptor",
+      "run the selected test through globalThis.fetch",
+    );
+  }
+  if (executionError && testsFailed === 0) {
+    return incomplete(
+      testsRan,
+      "the selected test runner failed without a parsed test assertion failure",
+      "fix the test runner failure and scan again",
+    );
+  }
+  return { kind: "completed", testsRun: testsRan, testsFailed };
 }

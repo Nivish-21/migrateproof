@@ -23,6 +23,11 @@ export interface ObserveResult {
   testsRan: number;
   failingTests: string[];
   sawAnyTraffic: boolean;
+  baseline: {
+    passed: boolean;
+    exitCode?: number;
+    signal?: string;
+  };
 }
 
 /**
@@ -177,6 +182,7 @@ export async function observe(projectRoot: string): Promise<ObserveResult> {
   const setupModule = existsSync(tsSetup) ? tsSetup : jsSetup;
 
   let combinedOutput = "";
+  let baseline: ObserveResult["baseline"] = { passed: true };
 
   try {
     const { stdout, stderr } = await execFileAsync(command, args, {
@@ -208,8 +214,18 @@ export async function observe(projectRoot: string): Promise<ObserveResult> {
       );
     }
     if (error && typeof error === "object") {
-      const execError = error as { stdout?: string; stderr?: string };
+      const execError = error as {
+        stdout?: string;
+        stderr?: string;
+        code?: unknown;
+        signal?: unknown;
+      };
       combinedOutput = `${execError.stdout ?? ""}\n${execError.stderr ?? ""}`;
+      baseline = { passed: false };
+      if (typeof execError.code === "number")
+        baseline.exitCode = execError.code;
+      if (typeof execError.signal === "string")
+        baseline.signal = execError.signal;
     }
   }
 
@@ -221,6 +237,7 @@ export async function observe(projectRoot: string): Promise<ObserveResult> {
         testsRan > 0 ? testsRan : combinedOutput.trim().length > 0 ? 1 : 0,
       failingTests,
       sawAnyTraffic: false,
+      baseline,
     };
   }
 
@@ -269,5 +286,6 @@ export async function observe(projectRoot: string): Promise<ObserveResult> {
     testsRan,
     failingTests,
     sawAnyTraffic: calls.length > 0,
+    baseline,
   };
 }

@@ -7,7 +7,6 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { runMutations } from "../../src/mutation/runMutations.js";
-import { hasGaps } from "../../src/mutation/report.js";
 
 const execFileAsync = promisify(execFile);
 const require = createRequire(import.meta.url);
@@ -17,9 +16,9 @@ const repoRoot = resolve(".");
 describe("scan integration", () => {
   it("reports gaps for a deliberately weak test suite", async () => {
     const report = await runMutations(resolve("test/integration/weak-project"));
-    expect(hasGaps(report)).toBe(true);
+    expect(report.verdict).toBe("gaps");
     const taxGaps = report.outcomes.filter(
-      (o) => o.mutation.fieldPath === "tax" && o.classification === "gap",
+      (o) => o.mutation?.fieldPath === "tax" && o.status === "missed",
     );
     expect(taxGaps.length).toBeGreaterThan(0);
   }, 120_000);
@@ -29,7 +28,7 @@ describe("scan integration", () => {
       resolve("test/integration/strong-project"),
     );
     const taxGaps = report.outcomes.filter(
-      (o) => o.mutation.fieldPath === "tax" && o.classification === "gap",
+      (o) => o.mutation?.fieldPath === "tax" && o.status === "missed",
     );
     expect(taxGaps).toEqual([]);
   }, 120_000);
@@ -45,7 +44,7 @@ describe("ephemeral-port projects", () => {
       resolve("test/integration/ephemeral-port-project"),
     );
 
-    expect(hasGaps(report)).toBe(true);
+    expect(report.verdict).toBe("gaps");
 
     // One logical endpoint, not one per port.
     const endpoints = new Set(report.outcomes.map((o) => o.endpoint));
@@ -58,74 +57,33 @@ describe("ephemeral-port projects", () => {
     // And the weak test genuinely fails to catch a tax change.
     expect(
       report.outcomes.some(
-        (o) => o.mutation.fieldPath === "tax" && o.classification === "gap",
+        (o) => o.mutation?.fieldPath === "tax" && o.status === "missed",
       ),
     ).toBe(true);
   }, 180_000);
 });
 
 describe("changes-driven scan", () => {
-  it(
-    "exits 1 and names the mutated field on a weak test suite",
-    async () => {
-      const scratchDir = mkdtempSync(join(tmpdir(), "mp-changes-weak-"));
+  it("emits a gaps JSON verdict and exits 1 on a weak test suite", async () => {
+    const scratchDir = mkdtempSync(join(tmpdir(), "mp-changes-weak-"));
+    try {
+      cpSync(resolve("test/integration/changes-project"), scratchDir, {
+        recursive: true,
+      });
+      rmSync(join(scratchDir, "node_modules"), {
+        recursive: true,
+        force: true,
+      });
+      symlinkSync(
+        join(repoRoot, "node_modules"),
+        join(scratchDir, "node_modules"),
+      );
+      rmSync(join(scratchDir, "test/strong.test.ts"));
+
+      let exitCode = 0;
+      let stdout = "";
       try {
-        cpSync(resolve("test/integration/changes-project"), scratchDir, {
-          recursive: true,
-        });
-        symlinkSync(
-          join(repoRoot, "node_modules"),
-          join(scratchDir, "node_modules"),
-        );
-        rmSync(join(scratchDir, "test/strong.test.ts"));
-
-        let exitCode = 0;
-        let stdout = "";
-        try {
-          const res = await execFileAsync(
-            "node",
-            [
-              "--import",
-              tsxLoader,
-              join(repoRoot, "src/cli/index.ts"),
-              "scan",
-              "--changes",
-              "changes.json",
-            ],
-            { cwd: scratchDir, timeout: 120_000 },
-          );
-          stdout = res.stdout;
-        } catch (error: unknown) {
-          if (error && typeof error === "object" && "code" in error) {
-            exitCode = (error as { code: number }).code;
-            stdout = (error as { stdout?: string }).stdout ?? "";
-          }
-        }
-
-        expect(exitCode).toBe(1);
-        expect(stdout).toContain("amount");
-      } finally {
-        rmSync(scratchDir, { recursive: true, force: true });
-      }
-    },
-    120_000,
-  );
-
-  it(
-    "exits 0 on a strong test suite that catches the change",
-    async () => {
-      const scratchDir = mkdtempSync(join(tmpdir(), "mp-changes-strong-"));
-      try {
-        cpSync(resolve("test/integration/changes-project"), scratchDir, {
-          recursive: true,
-        });
-        symlinkSync(
-          join(repoRoot, "node_modules"),
-          join(scratchDir, "node_modules"),
-        );
-        rmSync(join(scratchDir, "test/weak.test.ts"));
-
-        const { stdout } = await execFileAsync(
+        const res = await execFileAsync(
           "node",
           [
             "--import",
@@ -134,15 +92,58 @@ describe("changes-driven scan", () => {
             "scan",
             "--changes",
             "changes.json",
+            "--json",
           ],
           { cwd: scratchDir, timeout: 120_000 },
         );
-
-        expect(stdout).toContain("no gaps");
-      } finally {
-        rmSync(scratchDir, { recursive: true, force: true });
+        stdout = res.stdout;
+      } catch (error: unknown) {
+        if (error && typeof error === "object" && "code" in error) {
+          exitCode = (error as { code: number }).code;
+          stdout = (error as { stdout?: string }).stdout ?? "";
+        }
       }
-    },
-    120_000,
-  );
+
+      expect(exitCode).toBe(1);
+      expect(JSON.parse(stdout)).toMatchObject({ verdict: "gaps" });
+    } finally {
+      rmSync(scratchDir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it("emits a protected JSON verdict and exits 0 on a strong test suite", async () => {
+    const scratchDir = mkdtempSync(join(tmpdir(), "mp-changes-strong-"));
+    try {
+      cpSync(resolve("test/integration/changes-project"), scratchDir, {
+        recursive: true,
+      });
+      rmSync(join(scratchDir, "node_modules"), {
+        recursive: true,
+        force: true,
+      });
+      symlinkSync(
+        join(repoRoot, "node_modules"),
+        join(scratchDir, "node_modules"),
+      );
+      rmSync(join(scratchDir, "test/weak.test.ts"));
+
+      const { stdout } = await execFileAsync(
+        "node",
+        [
+          "--import",
+          tsxLoader,
+          join(repoRoot, "src/cli/index.ts"),
+          "scan",
+          "--changes",
+          "changes.json",
+          "--json",
+        ],
+        { cwd: scratchDir, timeout: 120_000 },
+      );
+
+      expect(JSON.parse(stdout)).toMatchObject({ verdict: "protected" });
+    } finally {
+      rmSync(scratchDir, { recursive: true, force: true });
+    }
+  }, 120_000);
 });

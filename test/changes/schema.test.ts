@@ -120,4 +120,13 @@ describe("parseChangesFile", () => {
       parseChangesFile(JSON.stringify({ api: "a.com" }), "c.json"),
     ).toThrow(UsageError);
   });
+
+  it("rejects an empty changes file", () => {
+    expect(() =>
+      parseChangesFile(
+        '{"api":"api.example.com","changes":[]}',
+        "changes.json",
+      ),
+    ).toThrow(/at least one change/);
+  });
 });

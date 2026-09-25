@@ -67,6 +67,12 @@ export function parseChangesFile(rawJson: string, path: string): ChangesFile {
     );
   }
 
+  if (parsed.changes.length === 0) {
+    throw new UsageError(
+      `invalid changes file at ${path}: "changes" must contain at least one change`,
+    );
+  }
+
   const changes: ApiChange[] = [];
 
   for (let i = 0; i < parsed.changes.length; i++) {

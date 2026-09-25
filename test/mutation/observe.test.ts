@@ -1,9 +1,9 @@
 // test/mutation/observe.test.ts
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { resolveTestCommand } from "../../src/mutation/observe.js";
+import { observe, resolveTestCommand } from "../../src/mutation/observe.js";
 import { UsageError } from "../../src/errors.js";
 
 function withPackageJson(contents: unknown): string {
@@ -44,5 +44,22 @@ describe("resolveTestCommand", () => {
     expect(() =>
       resolveTestCommand(join(tmpdir(), "mp-does-not-exist", "package.json")),
     ).toThrow(UsageError);
+  });
+});
+
+describe("observe", () => {
+  it("records a failed baseline test process", async () => {
+    const dir = withPackageJson({
+      scripts: {
+        test: "node -e \"console.log('Tests 0 passed, 1 failed'); process.exit(1)\"",
+      },
+    });
+    mkdirSync(join(dir, "node_modules"));
+    try {
+      const result = await observe(dir);
+      expect(result.baseline).toMatchObject({ passed: false, exitCode: 1 });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

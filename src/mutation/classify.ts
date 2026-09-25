@@ -1,30 +1,37 @@
-// src/mutation/classify.ts
+import type { ApiChange } from "../changes/schema.js";
 import type { Mutation } from "./operators.js";
 
-export type Classification = "caught" | "gap";
-
-export type EndpointStatus = "analyzed" | "unprotected" | "unanalyzable";
+export type OutcomeStatus = "caught" | "missed" | "incomplete";
 
 export interface MutationOutcome {
   endpoint: string;
-  mutation: Mutation;
+  change?: ApiChange;
+  mutation?: Mutation;
+  testFiles: string[];
   testsRun: number;
   testsFailed: number;
-  classification: Classification;
+  status: OutcomeStatus;
+  reason?: string;
+  nextAction?: string;
 }
 
 export function classifyOutcome(
   testsRun: number,
   testsFailed: number,
-): Classification {
-  return testsFailed > 0 ? "caught" : "gap";
+): OutcomeStatus {
+  if (testsRun === 0) return "incomplete";
+  return testsFailed > 0 ? "caught" : "missed";
 }
+
+const STATUS_ORDER: Record<OutcomeStatus, number> = {
+  missed: 0,
+  incomplete: 1,
+  caught: 2,
+};
 
 export function rankOutcomes(outcomes: MutationOutcome[]): MutationOutcome[] {
   return [...outcomes].sort((a, b) => {
-    if (a.classification !== b.classification) {
-      return a.classification === "gap" ? -1 : 1;
-    }
-    return b.testsRun - a.testsRun;
+    const statusOrder = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
+    return statusOrder !== 0 ? statusOrder : b.testsRun - a.testsRun;
   });
 }
