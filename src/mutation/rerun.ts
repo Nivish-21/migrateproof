@@ -145,8 +145,17 @@ export async function rerun(
   if (executionError?.killed === true) {
     return incomplete(
       testsRan,
-      "the selected test run timed out",
+      typeof executionError.signal === "string"
+        ? `the selected test run timed out after signal ${executionError.signal}`
+        : "the selected test run timed out",
       "make the selected test finish within the rerun timeout",
+    );
+  }
+  if (typeof executionError?.signal === "string") {
+    return incomplete(
+      testsRan,
+      `the selected test run stopped by signal ${executionError.signal}`,
+      "fix the interrupted test run and scan again",
     );
   }
   if (testsRan === 0) {

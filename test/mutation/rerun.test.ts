@@ -82,6 +82,22 @@ describe("rerun", () => {
     });
   });
 
+  it("returns incomplete when the runner stops by signal after a parsed failure", async () => {
+    const rerun = await loadRerun({
+      error: {
+        signal: "SIGTERM",
+        stdout: "Tests  0 passed, 1 failed (1)",
+      },
+      marker: true,
+    });
+    await expect(
+      rerun(tempDir, call, { id: "mutated" }),
+    ).resolves.toMatchObject({
+      kind: "incomplete",
+      reason: expect.stringContaining("SIGTERM"),
+    });
+  });
+
   it("returns incomplete for a non-test runner failure", async () => {
     const rerun = await loadRerun({
       error: { code: 1, stdout: "fatal configuration error" },
