@@ -173,7 +173,7 @@ export async function runMutations(
     const mockHint = detectMockLibraryUsage(projectRoot);
     const reason = mockHint
       ? `tests ran but no HTTP traffic was observed — ${mockHint.evidence}, which MigrateProof's interceptor cannot see`
-      : "tests ran but no HTTP traffic was observed — the project likely mocks above the HTTP layer";
+      : "tests ran but no HTTP traffic was observed";
     const outcomes = changesFile
       ? changesFile.changes.map((change) =>
           incompleteOutcome(
