@@ -47,7 +47,9 @@ function findTestFiles(root: string): string[] {
  * null rather than a low-confidence guess when nothing concrete is found —
  * the caller falls back to its existing generic wording in that case.
  */
-export function detectMockLibraryUsage(projectRoot: string): MockLibraryHint | null {
+export function detectMockLibraryUsage(
+  projectRoot: string,
+): MockLibraryHint | null {
   const pkgPath = join(projectRoot, "package.json");
   if (existsSync(pkgPath)) {
     try {

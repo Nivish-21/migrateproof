@@ -3,8 +3,7 @@ import type { Mutation, MutationOperator } from "../mutation/operators.js";
 import type { ApiChange } from "./schema.js";
 
 export type ToMutationResult =
-  | { ok: true; mutation: Mutation }
-  | { ok: false; reason: string };
+  { ok: true; mutation: Mutation } | { ok: false; reason: string };
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -24,10 +23,7 @@ function coerceToType(
   }
 }
 
-export function toMutation(
-  change: ApiChange,
-  body: unknown,
-): ToMutationResult {
+export function toMutation(change: ApiChange, body: unknown): ToMutationResult {
   const segments = change.field.split(".");
   if (segments.length === 0 || change.field.trim().length === 0) {
     return {
