@@ -1,8 +1,8 @@
-name: MigrateProof
+name: Internal package smoke
 on:
-  pull_request:
+  workflow_dispatch:
 jobs:
-  check:
+  package-smoke:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -12,6 +12,4 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
-      - run: npx migrateproof replay --all --version v2 --json > migrateproof-result.json
-      - if: always()
-        run: node .github/scripts/annotate.js migrateproof-result.json
+      - run: npm run package:smoke

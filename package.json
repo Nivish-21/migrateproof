@@ -1,7 +1,7 @@
 {
   "name": "migrateproof",
   "version": "0.2.0",
-  "description": "Proves whether a consumer's real code and business invariant survive a recorded API behaviour change, via deterministic replay \u2014 no live API calls.",
+  "description": "Replays existing fetch-based consumer tests against documented API changes and reports the changes they miss.",
   "keywords": [
     "api",
     "migration",
@@ -36,6 +36,8 @@
   "author": "Nivish-21",
   "scripts": {
     "build": "tsc",
+    "prepack": "npm run build",
+    "package:smoke": "node scripts/package-smoke.mjs",
     "test": "vitest run",
     "lint": "eslint src test --no-error-on-unmatched-pattern",
     "format": "prettier --check src test --no-error-on-unmatched-pattern",
@@ -62,7 +64,7 @@
     "eslint": "^8.57.0",
     "eslint-config-prettier": "^9.1.0",
     "prettier": "^3.2.0",
-    "typescript": "^5.4.0",
+    "typescript": "5.5.4",
     "vitest": "^3.2.7"
   }
 }
