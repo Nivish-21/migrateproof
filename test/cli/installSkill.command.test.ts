@@ -38,6 +38,22 @@ describe("install-skill command", () => {
       expect(content).toContain("migrateproof --changes");
       expect(content).toContain("not yet published to");
       expect(content).toContain("do not hand-edit");
+      expect(content).toContain("globalThis.fetch");
+      expect(content).toContain("Cannot prove");
+      expect(content).toContain("testFiles");
+      expect(content).toContain(
+        "node /absolute/path/to/migrateproof/dist/cli/index.js --changes changes.json",
+      );
+      expect(content).not.toContain("likely mocks above the HTTP layer");
+      expect(content).toContain(
+        "`protected` (`0`) — every result is **Caught**.",
+      );
+      expect(content).toContain(
+        "`gaps` (`1`) — any result is **Missed**, including when another is **Cannot prove**.",
+      );
+      expect(content).toContain(
+        "`incomplete` (`2`) — no result is **Missed** and at least one is **Cannot prove**.",
+      );
     } finally {
       rmSync(scratchDir, { recursive: true, force: true });
     }

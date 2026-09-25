@@ -3,64 +3,45 @@
 [![CI](https://github.com/Nivish-21/migrateproof/actions/workflows/ci.yml/badge.svg)](https://github.com/Nivish-21/migrateproof/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-Finds the API changes your test suite would silently fail to catch.
+Replays existing fetch-based consumer tests against documented API changes and
+reports the changes they miss.
 
 > **Status: early, not published to npm.** Run it from a clone (see below).
 > The mechanism works and is verified against real repositories, but no
 > team has used this in anger yet. Treat it as a working prototype, not a
 > dependency.
 
-## Quick Start
+## Quick Start: migration-aware scan
+
+### Prerequisites
+
+- Node 22+.
+- An `npm test` command with a passing baseline.
+- JSON responses reached through `globalThis.fetch`.
+
+MigrateProof supports only JSON responses reached through `globalThis.fetch`.
+Axios, Node `http`/`https`, and mocked application wrappers are unsupported.
+If no fetch request is observed, the result is **Cannot prove**. It is not
+evidence of a particular mocking choice.
+
+### Clone, build, and run a pilot
+
+Create the `changes.json` file shown below, then run:
 
 ```sh
 git clone https://github.com/Nivish-21/migrateproof.git
-cd migrateproof && npm install && npm run build
+cd migrateproof && npm ci && npm run build
 cd /path/to/your/project
-node /path/to/migrateproof/dist/cli/index.js
+node /absolute/path/to/migrateproof/dist/cli/index.js --changes changes.json
 ```
 
-No config and no files to create in your project.
+Replace `/absolute/path/to/migrateproof` with the clone you built. Do not run
+`npx migrateproof`: the package has not been published.
 
-MigrateProof runs your existing test suite, changes the API responses
-your tests receive (a number becomes a string, a field goes null, an
-amount shifts from cents to dollars), re-runs the affected tests, and
-tells you which changes your suite failed to notice.
+### `changes.json`
 
-A test that passes against real data _and_ against corrupted data is not
-actually checking the thing that got corrupted. That is the gap this
-finds.
-
-### Whether it will work on your project
-
-It needs to see real HTTP traffic from your tests. Concretely:
-
-| Your tests…                                                           | Result                                         |
-| --------------------------------------------------------------------- | ---------------------------------------------- |
-| call `fetch` and mock at the network layer (`msw`, or a `fetch` stub) | works                                          |
-| mock the module instead (`vi.mock('./apiClient')`)                    | no traffic to observe; reported as such        |
-| spin up a local server on a random port each run                      | works (the port is ignored for loopback hosts) |
-| don't exercise the API at all                                         | reported as unprotected                        |
-
-The two unsupported cases are limits of the approach, not bugs. It says so in the
-output rather than reporting a false result.
-
-## Driving mutations from an API migration guide (`--changes`)
-
-Running `migrateproof` with no arguments mutates response fields generically
-to explore blind spots.
-
-When upgrading an API dependency, you don't need guesses — you have a
-migration guide or changelog. You can feed those changes directly to
-MigrateProof using `--changes`:
-
-```sh
-node /path/to/migrateproof/dist/cli/index.js scan --changes changes.json
-```
-
-### Changes file format
-
-A JSON file specifying the API hostname, optional metadata, and the list of
-planned changes:
+Use the migration guide, changelog, or API specification to describe each
+documented response change:
 
 ```json
 {
@@ -102,46 +83,53 @@ planned changes:
 }
 ```
 
-### The five change kinds
+### Outcomes and exit codes
 
-| `kind` | What MigrateProof does to the response | Additional fields required |
-|---|---|---|
-| `removed` | Deletes the field (`delete body[field]`) | none |
-| `now-nullable` | Sets the field value to `null` | none |
-| `unit-change` | Multiplies the numeric value by `factor` | `factor` (number) |
-| `type-changed` | Coerces value to the requested type | `to-type` (`"string"` \| `"number"` \| `"boolean"`) |
-| `new-enum-value` | Sets field to an unexpected enum string | `value` (string or null) |
+| Verdict      | Exit | Meaning                                                                                      |
+| ------------ | ---- | -------------------------------------------------------------------------------------------- |
+| `protected`  | `0`  | Every result is **Caught**.                                                                  |
+| `gaps`       | `1`  | Any result is **Missed**, even if another result is **Cannot prove**.                        |
+| `incomplete` | `2`  | No result is **Missed** and at least one result is **Cannot prove**. Follow its next action. |
+
+Set `source` to the migration guide's URL. MigrateProof prints that source
+URL in the report so a reviewer can check the documented changes behind the
+result.
+
+### Change kinds
+
+| `kind`           | What MigrateProof does to the response   | Additional fields required                          |
+| ---------------- | ---------------------------------------- | --------------------------------------------------- |
+| `removed`        | Deletes the field (`delete body[field]`) | none                                                |
+| `now-nullable`   | Sets the field value to `null`           | none                                                |
+| `unit-change`    | Multiplies the numeric value by `factor` | `factor` (number)                                   |
+| `type-changed`   | Coerces value to the requested type      | `to-type` (`"string"` \| `"number"` \| `"boolean"`) |
+| `new-enum-value` | Sets field to an unexpected enum string  | `value` (string or null)                            |
 
 ### Endpoint matching
 
 - `endpoint` matches the HTTP method (case-insensitive) and path.
 - Path parameters wrapped in braces like `{id}` match any single path segment.
 - Hostnames match against `api`. (For local test servers, loopback ports are normalized automatically).
-- Changes that do not match any endpoint called during tests, or whose fields do not exist in the recorded response, are reported under an `unmatched` section rather than failing silently.
+- A response mutation or valid rerun that cannot be established is **Cannot
+  prove**, not a missed change.
 
-### The limitation
+### Limits of migration proof
 
 The tool tests what the changes file says, so a wrong changes file produces a
-confident wrong answer. If you omit a breaking change or describe it incorrectly,
-MigrateProof will report "no gaps" against your flawed specification.
+confident wrong answer. If you omit a breaking change or describe it
+incorrectly, MigrateProof cannot prove coverage for that undocumented change.
 
-This is why `source` is echoed in the report output: always record where the
-changes came from (documentation URL, migration guide, spec diff) so a human
-reviewer can audit the changes file.
+## Exploratory mode
 
-## Using it with an AI agent
+Run the built CLI without `--changes` to generate plausible response changes
+from requests your tests happened to make:
 
-Most people won't run this by hand. Paste this into your coding agent:
+```sh
+node /absolute/path/to/migrateproof/dist/cli/index.js
+```
 
-> Run `node /path/to/migrateproof/dist/cli/index.js` in this repo, then
-> close every gap it reports by strengthening the tests it names. Re-run
-> to verify each fix actually closes the gap. Tell me about anything you
-> couldn't close.
-
-The division of labour is deliberate: MigrateProof finds gaps
-mechanically (no LLM, no guessing), the agent writes the missing
-assertions, and MigrateProof re-checks the fix. The agent never has to
-judge its own work.
+This is a guess about blind spots, not migration proof. Use a documented
+`changes.json` file when you need a result tied to an actual API change.
 
 ## Advanced: proving a specific invariant with fixtures
 
@@ -279,6 +267,9 @@ Python-based impact analysis (`py/impact_analysis.py`) requires Python 3.x on `P
 The sandboxed `patch` execution path installs consumer dependencies with `npm ci --ignore-scripts`, which blocks `postinstall`/`preinstall`/`install`/`prepare` scripts for npm-registry-sourced packages. A git-sourced dependency's own `prepare` script is a known, documented upstream limitation of `--ignore-scripts` this project does not attempt to work around — a consumer project depending on such a package will see that dependency fail to build correctly inside the sandbox. Native Windows is not supported for the Docker sandbox; use WSL2.
 
 ### GitHub Action
+
+> **Not supported; do not copy.** This legacy example relies on files from the
+> MigrateProof checkout and cannot run in a consumer repository.
 
 Add this workflow to a repository using MigrateProof:
 

@@ -5,7 +5,7 @@ regenerating this file will overwrite any changes.
 
 Instructions for an AI coding agent: find the API changes this
 repository's test suite would silently fail to catch, then close those
-gaps.
+Missed results.
 
 ## Default to acting, not asking
 
@@ -15,11 +15,18 @@ never ask just to confirm something you can verify by reading the code.
 
 ## Running MigrateProof
 
-The steps below invoke it as \`migrateproof\`. It is not yet published to
-npm, so unless it has been installed with \`npm link\` from a clone, replace
-\`migrateproof\` with \`node /path/to/migrateproof/dist/cli/index.js\` in
-every command below — check for a \`migrateproof\` binary on PATH first
-before assuming the long form is needed.
+MigrateProof is not yet published to npm. Until it has been installed or
+published, run:
+
+\`node /absolute/path/to/migrateproof/dist/cli/index.js --changes changes.json\`
+
+Only after installation or publication may you use the short
+\`migrateproof --changes changes.json\` command. Do not use \`npx migrateproof\`.
+
+MigrateProof observes JSON responses reached through \`globalThis.fetch\`.
+Axios, Node \`http\`/\`https\`, and mocked application wrappers are unsupported.
+No observed fetch traffic is **Cannot prove**, not evidence that a particular
+mock exists.
 
 ## Workflow
 
@@ -35,43 +42,39 @@ before assuming the long form is needed.
      - \`kind\`: one of \`removed\`, \`now-nullable\`, \`unit-change\` (with \`factor\`),
        \`type-changed\` (with \`to-type\`), or \`new-enum-value\` (with \`value\`)
      - \`note\`: optional description of the change
-3. Run \`migrateproof --changes changes.json\`.
+3. Run
+   \`node /absolute/path/to/migrateproof/dist/cli/index.js --changes changes.json\`.
    MigrateProof mutates only the specified fields on the matching endpoints
    and re-runs the affected tests.
-4. For any reported gap:
-   - Read the test files named under \`testFiles\`.
-   - Add the missing assertion or type check that would catch the mutation.
-   - Re-run \`migrateproof --changes changes.json\` to verify the gap
-     is now caught.
-5. Report what you closed and anything you could not, with the reason.
+4. For every **Missed** or **Cannot prove** result, read the files named under
+   \`testFiles\`.
+   - For **Missed**, add the assertion or type check that would catch the
+     confirmed response change.
+   - For **Cannot prove**, follow its next action before inferring coverage.
+5. Re-run the same command to verify each resolved **Missed** result is
+   **Caught**.
+6. Report what you closed and anything you could not, with the reason.
 
 ### Generic scan workflow (zero-config exploration)
 
-1. Run \`migrateproof\`. It runs this project's existing test
+1. Run \`node /absolute/path/to/migrateproof/dist/cli/index.js\`. It runs this project's existing test
    suite, mutates the API responses those tests receive, re-runs the
-   affected tests, and reports every field whose change nothing caught.
-   No setup, no config, no files to create.
-2. For each reported gap, add the assertion that would catch it, to the
-   test file the report names. A gap means the test ran happily against
-   corrupted data — the fix is a real assertion about that field's
-   value or type, not a broader smoke test.
-3. Run \`migrateproof\` again. The gap you just fixed must now
-   report as caught. If it does not, your assertion is not actually
-   checking the mutated field.
-4. Report what you closed and anything you could not, with the reason.
+   affected tests, and invents plausible response changes. This is a guess
+   about blind spots, not migration proof.
+2. For each **Missed** result, add the assertion that would catch it in the
+   named test file. Re-run to verify it is **Caught**.
 
 ## Interpreting the report
 
-- **gap** — the suite ran and noticed nothing. This is the actionable
-  case, and it is worse than no coverage, because it looks covered.
-- **unmatched** — a change in your changes file was not tested. Either the
-  endpoint was never called during the test suite, or the field did not exist
-  in the recorded response body.
-- **no tests at all** — nothing to strengthen; the endpoint needs a test
-  written from scratch. Say so rather than inventing assertions about
-  business rules you cannot verify from the code.
-- **could not be analyzed** — usually means the project mocks above the
-  HTTP layer. Report it; do not work around it.
+- **Caught** — the selected test failed after MigrateProof supplied the requested response change.
+- **Missed** — the selected test still passed after that confirmed response change.
+- **Cannot prove** — MigrateProof could not establish the response mutation or a valid rerun; follow its next action.
+
+### Verdicts and exit codes
+
+- \`protected\` (\`0\`) — every result is **Caught**.
+- \`gaps\` (\`1\`) — any result is **Missed**, including when another is **Cannot prove**.
+- \`incomplete\` (\`2\`) — no result is **Missed** and at least one is **Cannot prove**.
 
 ## What this does not do
 
@@ -83,4 +86,3 @@ For proving a specific, hand-stated business invariant against recorded
 v1/v2 responses, see the fixture workflow in the README's advanced
 section.
 `;
-
