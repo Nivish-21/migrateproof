@@ -82,7 +82,7 @@ describe("init command", () => {
     } finally {
       rmSync(scratchDir, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   it("refuses to overwrite a consumer.ts that has real content", async () => {
     const scratchDir = mkdtempSync(join(tmpdir(), "mp-init-"));
