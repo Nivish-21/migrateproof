@@ -1,6 +1,12 @@
 // test/cli/init.command.test.ts
 import { execFile } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -13,7 +19,7 @@ const tsxLoader = require.resolve("tsx");
 const repoRoot = resolve(".");
 
 describe("init command", () => {
-  it("scaffolds fixture.yaml, consumer.ts, invariant.ts", async () => {
+  it("scaffolds and replays a POST consumer", async () => {
     const scratchDir = mkdtempSync(join(tmpdir(), "mp-init-"));
     try {
       await execFileAsync(
@@ -25,7 +31,7 @@ describe("init command", () => {
           "init",
           "orders",
           "--method",
-          "GET",
+          "POST",
           "--url",
           "https://api.example.com/v1/orders/1",
         ],
@@ -38,6 +44,41 @@ describe("init command", () => {
       expect(readFileSync(join(fixtureDir, "fixture.yaml"), "utf-8")).toContain(
         "https://api.example.com/v1/orders/1",
       );
+      expect(readFileSync(join(fixtureDir, "consumer.ts"), "utf-8")).toContain(
+        '{ method: "POST" }',
+      );
+
+      const responsePath = join(scratchDir, "response.json");
+      writeFileSync(responsePath, JSON.stringify({ created: true }));
+      await execFileAsync(
+        "node",
+        [
+          "--import",
+          tsxLoader,
+          join(repoRoot, "src/cli/index.ts"),
+          "capture",
+          "fixtures/orders",
+          "--as",
+          "v1",
+          "--from-file",
+          responsePath,
+        ],
+        { cwd: scratchDir },
+      );
+      const replay = await execFileAsync(
+        "node",
+        [
+          "--import",
+          tsxLoader,
+          join(repoRoot, "src/cli/index.ts"),
+          "replay",
+          "fixtures/orders",
+          "--version",
+          "v1",
+        ],
+        { cwd: scratchDir },
+      );
+      expect(replay.stdout).toContain("invariant held");
     } finally {
       rmSync(scratchDir, { recursive: true, force: true });
     }

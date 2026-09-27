@@ -53,7 +53,7 @@ export function registerInitCommand(program: Command): void {
             "// same function your application actually uses, not a simplified",
             "// version. Must be a default-exported, zero-argument async function.",
             "export default async function consumer(): Promise<unknown> {",
-            `  const response = await fetch(${JSON.stringify(options.url)});`,
+            `  const response = await fetch(${JSON.stringify(options.url)}, { method: ${JSON.stringify(options.method)} });`,
             "  return response.json();",
             "}",
             "",

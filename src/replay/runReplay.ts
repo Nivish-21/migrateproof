@@ -36,21 +36,26 @@ export async function runReplay(
   }
 
   const method = fixture.request.method.toLowerCase() as HttpMethod;
-  const handlerFactory = http[method];
-  if (!handlerFactory) {
+  if (!http[method]) {
     throw new UsageError(
       `unsupported fixture request method: ${fixture.request.method}`,
     );
   }
+  const fixtureUrl = new URL(fixture.request.url);
+  const fixtureMethod = fixture.request.method.toUpperCase();
   const server = setupServer(
-    handlerFactory(
-      fixture.request.url,
-      () =>
-        new HttpResponse(JSON.stringify(response.body) ?? null, {
-          status: response.status,
-          headers: { "content-type": "application/json" },
-        }),
-    ),
+    http.all(`${fixtureUrl.origin}${fixtureUrl.pathname}`, ({ request }) => {
+      if (
+        request.method.toUpperCase() !== fixtureMethod ||
+        request.url !== fixtureUrl.href
+      ) {
+        return HttpResponse.error();
+      }
+      return new HttpResponse(JSON.stringify(response.body) ?? null, {
+        status: response.status,
+        headers: { "content-type": "application/json" },
+      });
+    }),
   );
   server.listen({ onUnhandledRequest: "error" });
 

@@ -6,8 +6,15 @@ import { runReplay } from "../../src/replay/runReplay.js";
 
 function writeFixture(
   directory: string,
-  options: { invariantThrows?: boolean; v2Passes?: boolean },
+  options: {
+    invariantThrows?: boolean;
+    v2Passes?: boolean;
+    requestUrl?: string;
+    consumerUrl?: string;
+  },
 ): void {
+  const requestUrl =
+    options.requestUrl ?? "https://api.example.com/v1/orders/123";
   writeFileSync(
     join(directory, "fixture.yaml"),
     [
@@ -15,7 +22,7 @@ function writeFixture(
       "name: checkout-total-invariant",
       "request:",
       "  method: GET",
-      "  url: https://api.example.com/v1/orders/123",
+      `  url: ${requestUrl}`,
       "responses:",
       "  v1:",
       "    status: 200",
@@ -31,7 +38,7 @@ function writeFixture(
     join(directory, "consumer.ts"),
     [
       "export default async function checkout() {",
-      "  const response = await fetch('https://api.example.com/v1/orders/123');",
+      `  const response = await fetch(${JSON.stringify(options.consumerUrl ?? requestUrl)});`,
       "  return response.json();",
       "}",
     ].join("\n"),
@@ -64,6 +71,24 @@ describe("runReplay", () => {
       error: null,
       invariant: "checkout-total-invariant",
     });
+  });
+
+  it("passes when the consumer requests the identical URL and query", async () => {
+    const url = "https://api.example.com/orders?id=123";
+    writeFixture(directory, { requestUrl: url });
+
+    const result = await runReplay(directory, "v1");
+
+    expect(result.passed).toBe(true);
+  });
+
+  it("does not serve a fixture to a request with a different query", async () => {
+    writeFixture(directory, {
+      requestUrl: "https://api.example.com/orders?id=123",
+      consumerUrl: "https://api.example.com/orders?id=456",
+    });
+
+    await expect(runReplay(directory, "v1")).rejects.toThrow();
   });
 
   it("fails on v2 with a structural diff naming the changed field", async () => {

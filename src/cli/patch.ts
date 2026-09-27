@@ -10,7 +10,7 @@ import { OpenCodePatchBackend } from "../patch/backends/opencode.js";
 import type { PatchBackend } from "../patch/types.js";
 import { runPatch } from "../patch/runPatch.js";
 
-const BACKEND_FACTORIES: Record<string, () => PatchBackend> = {
+export const BACKEND_FACTORIES: Record<string, () => PatchBackend> = {
   codex: () => new CodexPatchBackend(),
   claude: () => new ClaudeCodePatchBackend(),
   gemini: () => new GeminiCliPatchBackend(),
@@ -30,7 +30,9 @@ export function registerPatchCommand(program: Command): void {
     .action(
       async (fixtureDirArg: string, options: { patchBackend: string }) => {
         try {
-          const factory = BACKEND_FACTORIES[options.patchBackend];
+          const factory = Object.hasOwn(BACKEND_FACTORIES, options.patchBackend)
+            ? BACKEND_FACTORIES[options.patchBackend]
+            : undefined;
           if (!factory) {
             throw new UsageError(
               `--patch-backend must be one of: ${Object.keys(BACKEND_FACTORIES).join(", ")}`,
@@ -38,13 +40,12 @@ export function registerPatchCommand(program: Command): void {
           }
           const fixtureDir = resolveFixtureDir(process.cwd(), fixtureDirArg);
           const result = await runPatch(process.cwd(), fixtureDir, factory());
-          console.error(result.rawLog);
           if (result.accepted) {
             console.log(
               [
                 "patch accepted — review and merge manually:",
                 `  cd ${result.worktreeDir}`,
-                "  git diff",
+                "  git diff HEAD",
                 "  # copy/merge the change into your branch, then:",
                 `  git worktree remove --force ${result.worktreeDir}`,
               ].join("\n"),

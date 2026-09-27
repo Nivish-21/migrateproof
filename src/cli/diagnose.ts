@@ -12,6 +12,22 @@ export function registerDiagnoseCommand(program: Command): void {
       try {
         const fixtureDir = resolveFixtureDir(process.cwd(), fixtureDirArg);
         const result = await runReplay(fixtureDir, "v2");
+        if (result.error !== null) {
+          if (options.json) {
+            console.log(
+              JSON.stringify(
+                { passed: false, error: result.error, verdicts: {} },
+                null,
+                2,
+              ),
+            );
+          } else {
+            console.log(
+              `⚠ ${result.fixture} (v2) — invariant threw: ${result.error}`,
+            );
+          }
+          process.exit(2);
+        }
         if (result.passed) {
           if (options.json) {
             console.log(
