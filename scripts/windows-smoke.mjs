@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -138,7 +139,20 @@ for (const args of [
   ],
 ])
   await execFileAsync("git", args, { cwd: project, timeout: 30_000 });
-const result = await runScanFix(project, "config/changes.json", {
+const repairRoot =
+  process.platform === "win32" ? project.toUpperCase() : project;
+const gitRoot = realpathSync(
+  (
+    await execFileAsync("git", ["rev-parse", "--show-toplevel"], {
+      cwd: repairRoot,
+    })
+  ).stdout.trim(),
+);
+const rootSpellingDiffers = realpathSync(repairRoot) !== gitRoot;
+console.log(
+  JSON.stringify({ check: "git-root-spelling", rootSpellingDiffers }),
+);
+const result = await runScanFix(repairRoot, "config/changes.json", {
   async run(input) {
     writeFileSync(
       join(input.worktreeDir, "consumer.mjs"),
@@ -161,6 +175,7 @@ try {
     JSON.stringify({
       platform: process.platform,
       nativeWindows: process.platform === "win32",
+      rootSpellingDiffers,
       node: process.version,
       checks: [
         "npm-entry",

@@ -1,14 +1,16 @@
 import { execFile } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   renameSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as mutationRunner from "../../src/mutation/runMutations.js";
@@ -140,6 +142,72 @@ test("preserves the order total", async () => { assert.equal(await total(), 1200
       (await execFileAsync("git", ["status", "--porcelain"], { cwd: repoRoot }))
         .stdout,
     ).toBe("");
+  });
+
+  it("accepts an alternate spelling of the Git repository root", async () => {
+    const alternateRoot = join(
+      dirname(repoRoot),
+      basename(repoRoot).toUpperCase(),
+    );
+    const needsAlias = !existsSync(alternateRoot);
+    if (needsAlias) symlinkSync(repoRoot, alternateRoot, "junction");
+    try {
+      const result = await runScanFix(
+        alternateRoot,
+        "changes.json",
+        backend((input) => {
+          writeFileSync(join(input.worktreeDir, "consumer.mjs"), fixedSource);
+        }),
+      );
+      expect(result.status).toBe("compatible-candidate");
+      expect(readFileSync(join(repoRoot, "consumer.mjs"), "utf8")).toBe(
+        originalSource,
+      );
+    } finally {
+      if (needsAlias) rmSync(alternateRoot);
+    }
+  });
+
+  it("rejects a real subdirectory before scanning or invoking the backend", async () => {
+    const nested = join(repoRoot, "nested");
+    mkdirSync(nested);
+    const scan = vi.spyOn(mutationRunner, "runMutations");
+    await expect(
+      runScanFix(
+        nested,
+        "../changes.json",
+        backend(() => {
+          throw new Error("must not run");
+        }),
+      ),
+    ).rejects.toThrow("run scan --fix from the Git repository root");
+    expect(scan).not.toHaveBeenCalled();
+    expect(worktrees).toEqual([]);
+  });
+
+  it("rejects a directory outside an explicitly configured worktree", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "mp-outside-root-"));
+    const scan = vi
+      .spyOn(mutationRunner, "runMutations")
+      .mockRejectedValue(new Error("must not scan outside the worktree"));
+    vi.stubEnv("GIT_DIR", join(repoRoot, ".git"));
+    vi.stubEnv("GIT_WORK_TREE", repoRoot);
+    try {
+      await expect(
+        runScanFix(
+          outside,
+          "changes.json",
+          backend(() => {
+            throw new Error("must not run");
+          }),
+        ),
+      ).rejects.toThrow("run scan --fix from the Git repository root");
+      expect(scan).not.toHaveBeenCalled();
+      expect(worktrees).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 
   it.each([

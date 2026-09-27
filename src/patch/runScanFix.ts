@@ -135,16 +135,19 @@ export async function runScanFix(
   changesPath: string,
   backend: PatchBackend,
 ): Promise<ScanFixResult> {
-  const root = realpathSync(repoRoot);
+  let root = realpathSync(repoRoot);
   let head: string;
   try {
     if (
-      realpathSync(
-        (await git(root, ["rev-parse", "--show-toplevel"])).trim(),
-      ) !== root
+      (
+        await git(root, ["rev-parse", "--is-inside-work-tree", "--show-prefix"])
+      ).trim() !== "true"
     ) {
       throw new UsageError("run scan --fix from the Git repository root");
     }
+    root = realpathSync(
+      (await git(root, ["rev-parse", "--show-toplevel"])).trim(),
+    );
     head = (await git(root, ["rev-parse", "HEAD"])).trim();
   } catch (error) {
     if (error instanceof UsageError) throw error;
