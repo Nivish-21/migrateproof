@@ -1,6 +1,7 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -17,11 +18,16 @@ const call = {
 };
 
 let tempDir: string;
+let rerunEnv: NodeJS.ProcessEnv | undefined;
 
 afterEach(() => {
+  const observingMarker = rerunEnv?.MIGRATEPROOF_OBSERVING;
+  rerunEnv = undefined;
   vi.resetModules();
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   if (tempDir) rmSync(tempDir, { recursive: true, force: true });
+  if (observingMarker !== undefined) expect(observingMarker).toBe("1");
 });
 
 async function loadRerun(
@@ -46,6 +52,7 @@ async function loadRerun(
     _args: string[],
     options: { env: NodeJS.ProcessEnv },
   ): Promise<{ stdout: string; stderr: string }> => {
+    rerunEnv = options.env;
     if (result.marker) {
       writeFileSync(options.env.MIGRATEPROOF_MUTATION_RESULT_PATH!, "{}");
     }
@@ -110,7 +117,36 @@ describe("rerun", () => {
     });
   });
 
+  it("returns incomplete when a passing process reports failed tests", async () => {
+    const rerun = await loadRerun({
+      output: "Tests  0 passed, 1 failed (1)",
+      marker: true,
+    });
+    await expect(
+      rerun(tempDir, call, { id: "mutated" }),
+    ).resolves.toMatchObject({
+      kind: "incomplete",
+      reason: expect.stringContaining("contradicts"),
+    });
+  });
+
+  it("returns incomplete when a failing process reports only passing tests", async () => {
+    const rerun = await loadRerun({
+      error: { code: 1, stdout: "Tests  1 passed (1)" },
+      marker: true,
+    });
+    await expect(
+      rerun(tempDir, call, { id: "mutated" }),
+    ).resolves.toMatchObject({
+      kind: "incomplete",
+      reason: expect.stringContaining(
+        "without a parsed test assertion failure",
+      ),
+    });
+  });
+
   it("returns completed when a confirmed mutation fails a parsed test", async () => {
+    vi.stubEnv("NODE_OPTIONS", "--trace-warnings");
     const rerun = await loadRerun({
       error: { code: 1, stdout: "Tests  0 passed, 1 failed (1)" },
       marker: true,
@@ -120,5 +156,14 @@ describe("rerun", () => {
       testsRun: 1,
       testsFailed: 1,
     });
+    expect(
+      rerunEnv?.NODE_OPTIONS?.startsWith("--trace-warnings --import=file://"),
+    ).toBe(true);
+    const importUrl = rerunEnv?.NODE_OPTIONS?.match(/--import=(file:\S+)/)?.[1];
+    expect(importUrl).toBeDefined();
+    expect(fileURLToPath(importUrl!)).toBe(
+      join(process.cwd(), "src", "mutation", "rerunSetup.ts"),
+    );
+    expect(rerunEnv?.MIGRATEPROOF_OBSERVING).toBe("1");
   });
 });

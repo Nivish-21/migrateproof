@@ -2,6 +2,7 @@
 // Injected into the target project's test process via NODE_OPTIONS.
 // Records traffic; never modifies responses during the observe pass.
 import { appendFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 const recordingPath = process.env.MIGRATEPROOF_RECORDING_PATH;
 
@@ -19,9 +20,11 @@ function findTouchingTest(): string {
   }
 
   const stack = new Error().stack ?? "";
-  const match = stack.match(/(\/[^:\s()]+\.(?:test|spec)\.[cm]?[jt]sx?)/i);
+  const match = stack.match(
+    /(?:\(|^\s*at\s+(?:async\s+)?)((?:file:\/\/|\/|[A-Za-z]:[\\/]|\\\\).+\.(?:test|spec)\.[cm]?[jt]sx?):\d+:\d+\)?$/im,
+  );
   if (match && match[1]) {
-    return match[1];
+    return match[1].startsWith("file:") ? fileURLToPath(match[1]) : match[1];
   }
   return "";
 }
@@ -51,12 +54,17 @@ function wrap(fn: unknown): unknown {
           : input && typeof input === "object" && "url" in input
             ? (input as { url: string }).url
             : String(input);
+      const method = init?.method
+        ? init.method
+        : input && typeof input === "object" && "method" in input
+          ? String((input as { method: unknown }).method)
+          : "GET";
 
       if (recordingPath) {
         appendFileSync(
           `${recordingPath}.jsonl`,
           `${JSON.stringify({
-            method: init?.method ?? "GET",
+            method: method.toUpperCase(),
             url: rawUrl,
             status: response.status,
             body,

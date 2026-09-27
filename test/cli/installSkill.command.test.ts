@@ -41,8 +41,23 @@ describe("install-skill command", () => {
       expect(content).toContain("globalThis.fetch");
       expect(content).toContain("Cannot prove");
       expect(content).toContain("testFiles");
+      expect(content).toContain("api.example.com");
+      expect(content).not.toContain("api.stripe.com");
+      expect(content).toContain("--changes changes.json --json");
+      expect(content).toContain("JSON output is on stdout");
+      expect(content).toMatch(
+        /Usage\/configuration errors may be written to\s+stderr/,
+      );
+      expect(content).toContain("Do not invent business assertions");
+      expect(content).toContain("--fix --patch-backend codex --json");
+      expect(content).toContain("the first **Caught** change");
+      expect(content).toMatch(/Missed-only results need assertion\s+guidance/);
+      expect(content).toContain("compatible-candidate");
+      expect(content).toContain("remainingOutcomes");
+      expect(content).toContain("npm ci --ignore-scripts");
+      expect(content).toMatch(/both accepted and rejected worktrees/i);
       expect(content).toContain(
-        "node /absolute/path/to/migrateproof/dist/cli/index.js --changes changes.json",
+        "node /absolute/path/to/migrateproof/dist/cli/index.js --changes changes.json --json",
       );
       expect(content).not.toContain("likely mocks above the HTTP layer");
       expect(content).toContain(

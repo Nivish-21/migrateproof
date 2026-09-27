@@ -18,15 +18,24 @@ never ask just to confirm something you can verify by reading the code.
 MigrateProof is not yet published to npm. Until it has been installed or
 published, run:
 
-\`node /absolute/path/to/migrateproof/dist/cli/index.js --changes changes.json\`
+\`node /absolute/path/to/migrateproof/dist/cli/index.js --changes changes.json --json\`
 
 Only after installation or publication may you use the short
-\`migrateproof --changes changes.json\` command. Do not use \`npx migrateproof\`.
+\`migrateproof --changes changes.json --json\` command. Do not use \`npx migrateproof\`.
 
 MigrateProof observes JSON responses reached through \`globalThis.fetch\`.
 Axios, Node \`http\`/\`https\`, and mocked application wrappers are unsupported.
 No observed fetch traffic is **Cannot prove**, not evidence that a particular
 mock exists.
+The target's \`npm test\` runs on the host and must report test counts that
+MigrateProof can parse (Node \`--test\`, Vitest, and Jest output are supported).
+Use this only with repositories you trust: tests can
+run arbitrary code and inherit the environment. Stub external calls or use
+dedicated, least-privilege test credentials; never use production credentials.
+
+When reading report fields, pass \`--json\` and parse JSON from stdout.
+Valid JSON output is on stdout. Usage/configuration errors may be written to
+stderr and do not have a JSON error schema.
 
 ## Workflow
 
@@ -34,7 +43,7 @@ mock exists.
 
 1. Read the migration guide, changelog, or spec diff for the upstream API.
 2. Write a \`changes.json\` file describing the breaking changes:
-   - \`api\`: hostname of the API (e.g. \`api.stripe.com\`)
+   - \`api\`: hostname of the API (e.g. the synthetic \`api.example.com\`)
    - \`source\`: URL or doc reference where you read the changes
    - \`changes\`: array of changes, each specifying:
      - \`endpoint\`: e.g. \`GET /v1/charges/{id}\` (method and path; \`{id}\` matches any path segment)
@@ -43,32 +52,81 @@ mock exists.
        \`type-changed\` (with \`to-type\`), or \`new-enum-value\` (with \`value\`)
      - \`note\`: optional description of the change
 3. Run
-   \`node /absolute/path/to/migrateproof/dist/cli/index.js --changes changes.json\`.
+   \`node /absolute/path/to/migrateproof/dist/cli/index.js --changes changes.json --json\`.
    MigrateProof mutates only the specified fields on the matching endpoints
    and re-runs the affected tests.
 4. For every **Missed** or **Cannot prove** result, read the files named under
    \`testFiles\`.
-   - For **Missed**, add the assertion or type check that would catch the
-     confirmed response change.
+   - For **Missed**, add an assertion only when the intended behaviour is
+     established by the migration source or this repository's contract.
+     Do not invent business assertions. If the expected behaviour is unknown,
+     report that uncertainty instead of changing the test.
    - For **Cannot prove**, follow its next action before inferring coverage.
 5. Re-run the same command to verify each resolved **Missed** result is
    **Caught**.
 6. Report what you closed and anything you could not, with the reason.
 
+### Source repair for a caught documented change
+
+Use \`--fix\` only for a documented change whose scan result is **Caught**.
+It selects the first **Caught** change. Missed-only results need assertion
+guidance, not a code repair; only suggest assertions supported by the
+repository's contract or migration source. Do not invent business assertions.
+
+Before using it, confirm you are at the Git root, the working tree is clean,
+and \`changes.json\` plus the attributed test files are committed. If the
+project has dependencies, its committed \`package-lock.json\` is required.
+Dependency installation runs as \`npm ci --ignore-scripts\` in the separate
+worktree; the original \`node_modules\` is not shared.
+
+Run:
+
+\`node /absolute/path/to/migrateproof/dist/cli/index.js scan --changes changes.json --fix --patch-backend codex --json\`
+
+The backend defaults to \`codex\`; the same six choices as fixture \`patch\`
+are available: \`codex\`, \`claude\`, \`gemini\`, \`copilot\`, \`opencode\`,
+and \`cursor-agent\`. This runs the installed agent CLI on the host using its
+local authentication. Use only a trusted repository. The worktree is not a
+Docker security sandbox. Credentials and raw agent logs are not included in
+the report.
+
+The agent may edit only existing, tracked JavaScript or TypeScript consumer
+source. It must preserve tests, changes files, configuration, dependencies,
+and lockfiles. The unchanged tests must pass with both the original response
+and the documented changed response.
+
+Read the JSON report from stdout. It has \`kind: "scan-fix"\`, a \`status\`
+of \`compatible-candidate\` or \`rejected\`, \`before\`, \`after\`,
+\`worktreeDir\`, \`changedFiles\`, \`remainingOutcomes\`, and \`reason\`.
+\`before\` and \`after\` describe the selected change. A compatible
+candidate has \`before.status: "caught"\` and \`after.status: "missed"\`:
+the same unchanged tests now pass the changed response. \`changedFiles\` is
+the source diff, and \`remainingOutcomes\` lists the other initial results.
+Exit 0 means candidate, 1 means rejected, and 2 means usage, preflight, or
+incomplete. Usage/configuration errors may still be written to stderr without
+a JSON error schema.
+
+Both accepted and rejected worktrees are retained after the agent runs.
+Unlike fixture \`patch\`, rejected worktrees are not removed. Review the diff
+manually; nothing is merged automatically. A
+\`compatible-candidate\` is not a **protected** verdict: the selected change
+may still be **Missed** by an ordinary scan, and other outcomes may remain.
+
 ### Generic scan workflow (zero-config exploration)
 
-1. Run \`node /absolute/path/to/migrateproof/dist/cli/index.js\`. It runs this project's existing test
+1. Run \`node /absolute/path/to/migrateproof/dist/cli/index.js --json\`. It runs this project's existing test
    suite, mutates the API responses those tests receive, re-runs the
    affected tests, and invents plausible response changes. This is a guess
    about blind spots, not migration proof.
-2. For each **Missed** result, add the assertion that would catch it in the
-   named test file. Re-run to verify it is **Caught**.
+2. For each **Missed** result, check the repository's contract before adding
+   an assertion. Do not invent business assertions. Re-run with \`--json\` to
+   verify a grounded assertion is **Caught**.
 
 ## Interpreting the report
 
 - **Caught** — the selected test failed after MigrateProof supplied the requested response change.
 - **Missed** — the selected test still passed after that confirmed response change.
-- **Cannot prove** — MigrateProof could not establish the response mutation or a valid rerun; follow its next action.
+- **Cannot prove** — MigrateProof could not establish a meaningful response mutation or valid rerun. No-op, ambiguous, or unconfirmed mutations are not **Caught** or **Missed**; follow the next action.
 
 ### Verdicts and exit codes
 

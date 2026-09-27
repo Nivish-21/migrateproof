@@ -233,6 +233,87 @@ describe("runMutations with changes file", () => {
     });
   });
 
+  it("does not classify an ambiguous requested response", async () => {
+    vi.spyOn(observeModule, "observe").mockResolvedValueOnce(
+      observed([
+        {
+          method: "GET",
+          url: "https://api.stripe.com/v1/charges/ch_123",
+          status: 200,
+          body: { amount: 1000, id: 1 },
+          touchingTests: ["test/charge.test.ts"],
+          responseAmbiguous: true,
+        },
+      ]),
+    );
+    const rerunSpy = vi.spyOn(rerunModule, "rerun");
+
+    const report = await runMutations("/fake/project", changesPath);
+
+    expect(report.outcomes[0]).toMatchObject({
+      status: "incomplete",
+      reason: expect.stringContaining("different response bodies"),
+      nextAction: expect.any(String),
+    });
+    expect(rerunSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: "zero value scaling",
+      requestedChange: { ...change, factor: 100 },
+      body: { amount: 0 },
+    },
+    {
+      name: "null to null",
+      requestedChange: { ...change, kind: "now-nullable" },
+      body: { amount: null },
+    },
+    {
+      name: "same type and value conversion",
+      requestedChange: {
+        ...change,
+        kind: "type-changed",
+        "to-type": "string",
+      },
+      body: { amount: "1000" },
+    },
+    {
+      name: "same enum value",
+      requestedChange: { ...change, kind: "new-enum-value", value: "active" },
+      body: { amount: "active" },
+    },
+  ])("leaves $name as incomplete", async ({ requestedChange, body }) => {
+    writeFileSync(
+      changesPath,
+      JSON.stringify({
+        api: "api.stripe.com",
+        changes: [requestedChange],
+      }),
+    );
+    vi.spyOn(observeModule, "observe").mockResolvedValueOnce(
+      observed([
+        {
+          method: "GET",
+          url: "https://api.stripe.com/v1/charges/ch_123",
+          status: 200,
+          body,
+          touchingTests: ["test/charge.test.ts"],
+        },
+      ]),
+    );
+    const rerunSpy = vi.spyOn(rerunModule, "rerun");
+
+    const report = await runMutations("/fake/project", changesPath);
+
+    expect(report.outcomes[0]).toMatchObject({
+      status: "incomplete",
+      reason: expect.stringContaining("does not change"),
+      nextAction: expect.any(String),
+    });
+    expect(rerunSpy).not.toHaveBeenCalled();
+  });
+
   it("aggregates repeated calls conservatively and preserves every source test", async () => {
     vi.spyOn(observeModule, "observe").mockResolvedValueOnce(
       observed([

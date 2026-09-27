@@ -2,13 +2,17 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { UsageError } from "../errors.js";
 import { resolveTestCommand, type ObservedCall } from "./observe.js";
 
 const execFileAsync = promisify(execFile);
 const RERUN_TIMEOUT_MS = 60 * 1000;
+const ANSI_ESCAPE_SEQUENCE = new RegExp(
+  `${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`,
+  "g",
+);
 
 export type RerunResult =
   | { kind: "completed"; testsRun: number; testsFailed: number }
@@ -19,25 +23,62 @@ export type RerunResult =
       nextAction: string;
     };
 
-function matchCount(output: string, pattern: RegExp): number {
-  const match = output.match(pattern);
-  return match?.[1] ? parseInt(match[1], 10) : 0;
-}
-
 export function parseCounts(output: string): {
   testsRan: number;
   testsFailed: number;
 } {
-  const wordyFailed = matchCount(output, /(\d+)\s+failed/i);
-  const wordyPassed = matchCount(output, /(\d+)\s+passed/i);
-  const jestTotal = matchCount(output, /Tests:\s+.*(?:(\d+)\s+total)/i);
-  const nodeTotal = matchCount(output, /\btests\s+(\d+)/i);
-  const nodeFailed = matchCount(output, /\bfail\s+(\d+)/i);
+  const cleanOutput = output.replace(ANSI_ESCAPE_SEQUENCE, "");
+  const lines = cleanOutput.split(/\r?\n/).map((line) => line.trim());
+  const nodeCounts = new Map<string, number>();
 
-  return {
-    testsRan: Math.max(wordyFailed + wordyPassed, jestTotal, nodeTotal),
-    testsFailed: Math.max(wordyFailed, nodeFailed),
-  };
+  for (const line of lines) {
+    const match = line.match(/^(?:ℹ\s*|#\s*)(tests|pass|fail)\s+(\d+)$/i);
+    if (match?.[1] && match[2]) {
+      nodeCounts.set(match[1].toLowerCase(), Number(match[2]));
+    }
+  }
+
+  const nodeTotal = nodeCounts.get("tests");
+  if (nodeTotal !== undefined) {
+    const passed = nodeCounts.get("pass");
+    const failed = nodeCounts.get("fail");
+    if (
+      passed === undefined ||
+      failed === undefined ||
+      passed + failed !== nodeTotal
+    ) {
+      return { testsRan: 0, testsFailed: 0 };
+    }
+    return { testsRan: nodeTotal, testsFailed: failed };
+  }
+
+  for (const line of lines) {
+    const vitest = line.match(
+      /^Tests\s+(?:(\d+)\s+passed(?:(?:,\s*|\s*\|\s*)(\d+)\s+failed)?|(\d+)\s+failed(?:(?:,\s*|\s*\|\s*)(\d+)\s+passed)?)\s+\((\d+)\)$/i,
+    );
+    if (vitest?.[5]) {
+      const passed = Number(vitest[1] ?? vitest[4] ?? 0);
+      const failed = Number(vitest[2] ?? vitest[3] ?? 0);
+      const total = Number(vitest[5]);
+      return passed + failed === total
+        ? { testsRan: total, testsFailed: failed }
+        : { testsRan: 0, testsFailed: 0 };
+    }
+
+    const jest = line.match(
+      /^Tests:\s*(?:(\d+)\s+failed)?(?:,\s*)?(?:(\d+)\s+passed)?(?:,\s*)?(\d+)\s+total$/i,
+    );
+    if (jest?.[3] && (jest[1] || jest[2])) {
+      const failed = Number(jest[1] ?? 0);
+      const passed = Number(jest[2] ?? 0);
+      const total = Number(jest[3]);
+      return passed + failed <= total
+        ? { testsRan: passed + failed, testsFailed: failed }
+        : { testsRan: 0, testsFailed: 0 };
+    }
+  }
+
+  return { testsRan: 0, testsFailed: 0 };
 }
 
 function incomplete(
@@ -108,9 +149,10 @@ export async function rerun(
       env: {
         ...process.env,
         NODE_OPTIONS:
-          `${process.env.NODE_OPTIONS ?? ""} --import ${setupModule}`.trim(),
+          `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(setupModule).href}`.trim(),
         MIGRATEPROOF_MUTATION_CONFIG: mutationConfig,
         MIGRATEPROOF_MUTATION_RESULT_PATH: resultPath,
+        MIGRATEPROOF_OBSERVING: "1",
       },
     });
     output = `${stdout}\n${stderr}`;
@@ -177,6 +219,18 @@ export async function rerun(
       testsRan,
       "the selected test runner failed without a parsed test assertion failure",
       "fix the test runner failure and scan again",
+    );
+  }
+  if (
+    (executionError === undefined && testsFailed > 0) ||
+    (executionError !== undefined &&
+      testsFailed > 0 &&
+      executionError.code !== 1)
+  ) {
+    return incomplete(
+      testsRan,
+      "the test runner exit status contradicts its reported test failures",
+      "fix the test runner and scan again",
     );
   }
   return { kind: "completed", testsRun: testsRan, testsFailed };

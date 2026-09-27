@@ -43,6 +43,58 @@ async function runScan(dir: string): Promise<{
 }
 
 describe("scan command", () => {
+  it("rejects --fix without documented changes before running tests", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mp-fix-usage-"));
+    try {
+      await expect(
+        execFileAsync(
+          "node",
+          [
+            "--import",
+            tsxLoader,
+            join(repoRoot, "src/cli/index.ts"),
+            "scan",
+            "--fix",
+          ],
+          { cwd: dir },
+        ),
+      ).rejects.toMatchObject({
+        code: 2,
+        stderr: expect.stringContaining("--fix requires --changes"),
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an unknown fix backend before scanning", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mp-fix-backend-"));
+    try {
+      await expect(
+        execFileAsync(
+          "node",
+          [
+            "--import",
+            tsxLoader,
+            join(repoRoot, "src/cli/index.ts"),
+            "scan",
+            "--fix",
+            "--changes",
+            "changes.json",
+            "--patch-backend",
+            "unknown",
+          ],
+          { cwd: dir },
+        ),
+      ).rejects.toMatchObject({
+        code: 2,
+        stderr: expect.stringContaining("--patch-backend must be one of"),
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("exits 2 with a clear message when the project has no test script", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mp-scan-"));
     writeFileSync(

@@ -2,9 +2,10 @@
 import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { isDeepStrictEqual, promisify } from "node:util";
 import { UsageError } from "../errors.js";
+import { resolveNpmCommand } from "../process/npmCommand.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -16,6 +17,7 @@ export interface ObservedCall {
   status: number;
   body: unknown;
   touchingTests: string[];
+  responseAmbiguous?: boolean;
 }
 
 export interface ObserveResult {
@@ -118,8 +120,7 @@ export function resolveTestCommand(packageJsonPath: string): string[] {
       `package.json has no "test" script — MigrateProof needs one to observe your suite`,
     );
   }
-  // argv array only, never a shell string — see AGENTS.md.
-  return ["npm", "test", "--silent"];
+  return resolveNpmCommand(["test", "--silent"]);
 }
 
 interface RawRecordedCall {
@@ -191,7 +192,7 @@ export async function observe(projectRoot: string): Promise<ObserveResult> {
       env: {
         ...process.env,
         NODE_OPTIONS:
-          `${process.env.NODE_OPTIONS ?? ""} --import ${setupModule}`.trim(),
+          `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(setupModule).href}`.trim(),
         MIGRATEPROOF_RECORDING_PATH: recordingPath,
         // Marks the spawned suite as already running under an observe pass.
         // If that suite itself invokes `migrateproof scan` — which happens
@@ -256,6 +257,12 @@ export async function observe(projectRoot: string): Promise<ObserveResult> {
       const key = `${parsed.method} ${normalizedUrl}`;
       const existing = byKey.get(key);
       if (existing) {
+        if (
+          parsed.status !== existing.status ||
+          !isDeepStrictEqual(parsed.body, existing.body)
+        ) {
+          existing.responseAmbiguous = true;
+        }
         if (
           parsed.touchingTest &&
           !existing.touchingTests.includes(parsed.touchingTest)

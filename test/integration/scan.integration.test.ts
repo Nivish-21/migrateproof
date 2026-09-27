@@ -1,6 +1,14 @@
 // test/integration/scan.integration.test.ts
 import { execFile } from "node:child_process";
-import { cpSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -64,6 +72,58 @@ describe("ephemeral-port projects", () => {
 });
 
 describe("changes-driven scan", () => {
+  it.each([false, true])(
+    "reruns attributed tests from a spaced path with a strong assertion: %s",
+    async (strong) => {
+      const scratchDir = mkdtempSync(join(tmpdir(), "mp scan (spaces) % "));
+      const testPath = join(scratchDir, "test", "order (gross).test.mjs");
+      const changesPath = join(scratchDir, "changes.json");
+      try {
+        mkdirSync(join(scratchDir, "test"));
+        writeFileSync(
+          join(scratchDir, "package.json"),
+          JSON.stringify({ scripts: { test: "node --test" }, type: "module" }),
+        );
+        writeFileSync(
+          changesPath,
+          JSON.stringify({
+            api: "api.example.test",
+            changes: [
+              {
+                endpoint: "GET /order",
+                field: "amount",
+                kind: "unit-change",
+                factor: 100,
+              },
+            ],
+          }),
+        );
+        writeFileSync(
+          testPath,
+          [
+            'import assert from "node:assert/strict";',
+            'import test from "node:test";',
+            "globalThis.fetch = async () => new Response(JSON.stringify({ amount: 12 }));",
+            'test("checks an order", async () => {',
+            '  const body = await (await fetch("https://api.example.test/order")).json();',
+            strong ? "  assert.equal(body.amount, 12);" : "  assert.ok(body);",
+            "});",
+          ].join("\n"),
+        );
+        const report = await runMutations(scratchDir, changesPath);
+        expect(report.verdict).toBe(strong ? "protected" : "gaps");
+        expect(report.outcomes).toHaveLength(1);
+        expect(report.outcomes[0]).toMatchObject({
+          status: strong ? "caught" : "missed",
+          testFiles: [realpathSync(testPath)],
+          testsRun: 1,
+        });
+      } finally {
+        rmSync(scratchDir, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("emits a gaps JSON verdict and exits 1 on a weak test suite", async () => {
     const scratchDir = mkdtempSync(join(tmpdir(), "mp-changes-weak-"));
     try {

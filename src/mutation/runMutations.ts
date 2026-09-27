@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { isDeepStrictEqual } from "node:util";
 import { endpointMatches } from "../changes/matchEndpoint.js";
 import {
   parseChangesFile,
@@ -14,7 +15,12 @@ import {
 } from "./classify.js";
 import { detectMockLibraryUsage } from "./detectMockLibrary.js";
 import { observe, type ObservedCall } from "./observe.js";
-import { applyMutation, generateMutations } from "./operators.js";
+import {
+  applyMutation,
+  generateMutations,
+  MAX_MUTATIONS_PER_RESPONSE,
+  type Mutation,
+} from "./operators.js";
 import { deriveVerdict, type ScanReport } from "./report.js";
 import type { RerunResult } from "./rerun.js";
 
@@ -23,6 +29,12 @@ const NO_FETCH_NEXT_ACTION =
 const NO_TEST_NEXT_ACTION =
   "add or attribute a test that exercises this request";
 const BASELINE_NEXT_ACTION = "fix the failing baseline tests before scanning";
+const AMBIGUOUS_RESPONSE_REASON =
+  "the same request returned different response bodies or statuses";
+const AMBIGUOUS_RESPONSE_NEXT_ACTION =
+  "make repeated responses for this method and URL use the same status and body, then scan again";
+const NOOP_CHANGE_NEXT_ACTION =
+  "adjust the recorded value or API change so the requested mutation changes this field, then scan again";
 
 export async function rerunWithMutation(
   projectRoot: string,
@@ -35,6 +47,71 @@ export async function rerunWithMutation(
 
 function sortedTestFiles(calls: ObservedCall[]): string[] {
   return [...new Set(calls.flatMap((call) => call.touchingTests))].sort();
+}
+
+function changedGenericMutations(body: unknown): Mutation[] {
+  const mutations: Mutation[] = [];
+  const seen = new Set<string>();
+
+  function append(candidates: Mutation[], prefix = ""): { sawNoop: boolean } {
+    let sawNoop = false;
+    for (const candidate of candidates) {
+      const mutation = prefix
+        ? { ...candidate, fieldPath: `${prefix}.${candidate.fieldPath}` }
+        : candidate;
+      const unchanged = isDeepStrictEqual(body, applyMutation(body, mutation));
+      const key = `${mutation.operator}:${mutation.fieldPath}`;
+      if (seen.has(key)) {
+        sawNoop ||= unchanged;
+        continue;
+      }
+      seen.add(key);
+      if (unchanged) {
+        sawNoop = true;
+        continue;
+      }
+      mutations.push(mutation);
+      if (mutations.length === MAX_MUTATIONS_PER_RESPONSE) break;
+    }
+    return { sawNoop };
+  }
+
+  const initial = generateMutations(body);
+  const result = append(initial);
+  if (
+    initial.length < MAX_MUTATIONS_PER_RESPONSE ||
+    !result.sawNoop ||
+    typeof body !== "object" ||
+    body === null ||
+    Array.isArray(body)
+  ) {
+    return mutations;
+  }
+
+  function refill(value: unknown, prefix: string): void {
+    if (
+      mutations.length === MAX_MUTATIONS_PER_RESPONSE ||
+      typeof value !== "object" ||
+      value === null ||
+      Array.isArray(value)
+    ) {
+      return;
+    }
+
+    for (const [key, child] of Object.entries(value)) {
+      const candidates = generateMutations({ [key]: child });
+      const scoped = append(candidates, prefix);
+      if (mutations.length === MAX_MUTATIONS_PER_RESPONSE) {
+        return;
+      }
+      if (scoped.sawNoop && typeof child === "object" && child !== null) {
+        refill(child, prefix ? `${prefix}.${key}` : key);
+      }
+    }
+  }
+
+  refill(body, "");
+  return mutations;
 }
 
 function incompleteOutcome(
@@ -199,7 +276,23 @@ export async function runMutations(
     const outcomes: MutationOutcome[] = [];
     for (const call of observed.calls) {
       const endpoint = `${call.method} ${call.url}`;
-      for (const mutation of generateMutations(call.body)) {
+      for (const mutation of changedGenericMutations(call.body)) {
+        const mutatedBody = applyMutation(call.body, mutation);
+        if (isDeepStrictEqual(call.body, mutatedBody)) continue;
+
+        if (call.responseAmbiguous) {
+          outcomes.push(
+            incompleteOutcome(
+              endpoint,
+              sortedTestFiles([call]),
+              AMBIGUOUS_RESPONSE_REASON,
+              AMBIGUOUS_RESPONSE_NEXT_ACTION,
+              undefined,
+              mutation,
+            ),
+          );
+          continue;
+        }
         if (call.touchingTests.length === 0) {
           outcomes.push(
             incompleteOutcome(
@@ -213,11 +306,7 @@ export async function runMutations(
           );
           continue;
         }
-        const rerun = await rerunWithMutation(
-          projectRoot,
-          call,
-          applyMutation(call.body, mutation),
-        );
+        const rerun = await rerunWithMutation(projectRoot, call, mutatedBody);
         if (rerun.kind === "incomplete") {
           outcomes.push(
             incompleteOutcome(
@@ -268,13 +357,13 @@ export async function runMutations(
     const candidates: MutationOutcome[] = [];
     for (const call of matchingCalls) {
       const endpoint = `${call.method} ${call.url}`;
-      if (call.touchingTests.length === 0) {
+      if (call.responseAmbiguous) {
         candidates.push(
           incompleteOutcome(
             endpoint,
-            [],
-            "no test could be attributed to this request",
-            NO_TEST_NEXT_ACTION,
+            sortedTestFiles([call]),
+            AMBIGUOUS_RESPONSE_REASON,
+            AMBIGUOUS_RESPONSE_NEXT_ACTION,
             change,
           ),
         );
@@ -295,11 +384,35 @@ export async function runMutations(
         continue;
       }
 
-      const rerun = await rerunWithMutation(
-        projectRoot,
-        call,
-        applyMutation(call.body, mutation.mutation),
-      );
+      const mutatedBody = applyMutation(call.body, mutation.mutation);
+      if (isDeepStrictEqual(call.body, mutatedBody)) {
+        candidates.push(
+          incompleteOutcome(
+            endpoint,
+            sortedTestFiles([call]),
+            "the requested mutation does not change the recorded response",
+            NOOP_CHANGE_NEXT_ACTION,
+            change,
+            mutation.mutation,
+          ),
+        );
+        continue;
+      }
+
+      if (call.touchingTests.length === 0) {
+        candidates.push(
+          incompleteOutcome(
+            endpoint,
+            [],
+            "no test could be attributed to this request",
+            NO_TEST_NEXT_ACTION,
+            change,
+          ),
+        );
+        continue;
+      }
+
+      const rerun = await rerunWithMutation(projectRoot, call, mutatedBody);
       if (rerun.kind === "incomplete") {
         candidates.push(
           incompleteOutcome(
