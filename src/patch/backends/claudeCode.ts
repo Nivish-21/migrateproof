@@ -12,10 +12,8 @@ import type {
 
 const execFileAsync = promisify(execFile);
 
-// Verified against Claude Code 2.1.236: `claude -p <prompt> --permission-mode
-// bypassPermissions --allowedTools "Bash,Read,Edit,Write"`. Worktree
-// isolation (see runPatch.ts) is what makes bypassPermissions safe here —
-// the agent can only touch a disposable worktree, never the real checkout.
+// This backend grants arbitrary host command access. Use it only with trusted
+// local repositories; the worktree is not a sandbox.
 export class ClaudeCodePatchBackend implements PatchBackend {
   async run(input: PatchBackendInput): Promise<PatchBackendResult> {
     const { stdout, stderr } = await runBackendProcess({

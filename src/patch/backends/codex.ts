@@ -18,7 +18,14 @@ export class CodexPatchBackend implements PatchBackend {
     const { stdout, stderr } = await runBackendProcess({
       label: "codex",
       command: "codex",
-      args: ["exec", "-C", input.worktreeDir, input.instructions],
+      args: [
+        "exec",
+        "--sandbox",
+        "workspace-write",
+        "-C",
+        input.worktreeDir,
+        input.instructions,
+      ],
       cwd: input.worktreeDir,
       timeoutMs: resolveBackendTimeoutMs(),
     });

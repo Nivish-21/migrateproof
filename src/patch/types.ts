@@ -3,7 +3,7 @@ import type { Verdict } from "../semantic-engine/types.js";
 
 export interface PatchBackendInput {
   worktreeDir: string;
-  failureTrace: ReplayResult;
+  failureTrace?: ReplayResult;
   instructions: string;
 }
 

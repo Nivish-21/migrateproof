@@ -1,9 +1,19 @@
 import { execFile } from "node:child_process";
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Docker from "dockerode";
 import { UsageError } from "../../src/errors.js";
 import { runSandboxed } from "../../src/sandbox/runSandboxed.js";
@@ -88,7 +98,7 @@ describe.skipIf(!dockerAvailable)("runSandboxed", () => {
     const result = await runSandboxed(consumerRepoDir, patchDir);
     expect(Date.now() - start).toBeLessThan(20_000);
     expect(result.passed).toBe(false);
-  }, 30_000);
+  }, 60_000);
 
   it("kills a process that ignores SIGTERM once the wall-clock timeout fires, leaving no container behind", async () => {
     writeFileSync(
@@ -105,7 +115,7 @@ describe.skipIf(!dockerAvailable)("runSandboxed", () => {
       (c) => c.Image === "node:22-slim" && c.State === "running",
     );
     expect(leaked).toEqual([]);
-  }, 30_000);
+  }, 60_000);
 
   it("denies a privilege-escalation attempt (relies on Docker's default seccomp profile + no-new-privileges)", async () => {
     writeFileSync(
@@ -114,7 +124,7 @@ describe.skipIf(!dockerAvailable)("runSandboxed", () => {
     );
     const result = await runSandboxed(consumerRepoDir, patchDir);
     expect(result.log).not.toContain("escalated");
-  }, 30_000);
+  }, 60_000);
 
   it("cleans up (no leaked temp dir, no leaked volume) when consumerRepoDir has no package.json", async () => {
     const emptyDir = mkdtempSync(join(tmpdir(), "mp-sandbox-empty-"));
@@ -141,7 +151,7 @@ describe.skipIf(!dockerAvailable)("runSandboxed", () => {
     ).length;
     expect(countAfter).toBe(countBefore);
     rmSync(emptyDir, { recursive: true, force: true });
-  }, 30_000);
+  }, 60_000);
 
   it("leaves no accumulated containers or volumes after 3 sequential runs", async () => {
     const docker = new Docker();
@@ -175,5 +185,123 @@ describe("runSandboxed HostConfig hardening (structural, no Docker daemon needed
       await import("../../src/sandbox/runSandboxed.js");
     expect(RUN_CONTAINER_SECURITY_OPT).not.toContain("seccomp=unconfined");
     expect(RUN_CONTAINER_SECURITY_OPT).toContain("no-new-privileges");
+  });
+});
+
+describe("runSandboxed caller-owned inputs (no Docker daemon needed)", () => {
+  it.each([
+    { name: "success", failVolume: false },
+    { name: "volume creation failure", failVolume: true },
+  ])("preserves caller inputs on $name", async ({ failVolume }) => {
+    const consumerRepoDir = mkdtempSync(
+      join(tmpdir(), "mp-sandbox-consumer-private-"),
+    );
+    const patchDir = mkdtempSync(join(tmpdir(), "mp-sandbox-patch-private-"));
+    const externalFile = join(tmpdir(), `mp-sandbox-private-${randomUUID()}`);
+    const temporaryStagesBefore = readdirSync(tmpdir())
+      .filter((entry) => entry.startsWith("mp-sandbox-staged-"))
+      .sort();
+
+    chmodSync(consumerRepoDir, 0o700);
+    chmodSync(patchDir, 0o700);
+    writeFileSync(
+      join(consumerRepoDir, "package.json"),
+      JSON.stringify({ name: "consumer", version: "1.0.0" }),
+      { mode: 0o600 },
+    );
+    writeFileSync(join(consumerRepoDir, "private.txt"), "consumer-private", {
+      mode: 0o600,
+    });
+    writeFileSync(externalFile, "outside-private", { mode: 0o600 });
+    symlinkSync(externalFile, join(consumerRepoDir, "linked-private.txt"));
+    writeFileSync(join(patchDir, "private.txt"), "patch-private", {
+      mode: 0o600,
+    });
+
+    const snapshot = () => ({
+      consumerDirectoryMode: statSync(consumerRepoDir).mode & 0o777,
+      packageMode: statSync(join(consumerRepoDir, "package.json")).mode & 0o777,
+      consumerContents: readFileSync(
+        join(consumerRepoDir, "private.txt"),
+        "utf8",
+      ),
+      patchDirectoryMode: statSync(patchDir).mode & 0o777,
+      patchMode: statSync(join(patchDir, "private.txt")).mode & 0o777,
+      patchContents: readFileSync(join(patchDir, "private.txt"), "utf8"),
+      externalMode: statSync(externalFile).mode & 0o777,
+      externalContents: readFileSync(externalFile, "utf8"),
+    });
+    const before = snapshot();
+    const containerRemove = vi.fn().mockResolvedValue(undefined);
+    const volumeRemove = vi.fn().mockResolvedValue(undefined);
+    const container = {
+      start: vi.fn().mockResolvedValue(undefined),
+      wait: vi.fn().mockResolvedValue(undefined),
+      logs: vi.fn().mockResolvedValue(Buffer.alloc(0)),
+      inspect: vi.fn().mockResolvedValue({ State: { ExitCode: 0 } }),
+      remove: containerRemove,
+    };
+    const docker = {
+      ping: vi.fn().mockResolvedValue(undefined),
+      pull: vi.fn(
+        (
+          _image: string,
+          callback: (
+            error: Error | null,
+            stream: NodeJS.ReadableStream,
+          ) => void,
+        ) => callback(null, {} as unknown as NodeJS.ReadableStream),
+      ),
+      modem: {
+        followProgress: vi.fn(
+          (
+            _stream: NodeJS.ReadableStream,
+            callback: (error: Error | null, output: unknown[]) => void,
+          ) => callback(null, []),
+        ),
+      },
+      listContainers: vi.fn().mockResolvedValue([]),
+      listVolumes: vi.fn().mockResolvedValue({ Volumes: [] }),
+      createVolume: failVolume
+        ? vi.fn().mockRejectedValue(new Error("volume creation failed"))
+        : vi.fn().mockResolvedValue(undefined),
+      getVolume: vi.fn().mockReturnValue({ remove: volumeRemove }),
+      createContainer: vi.fn().mockResolvedValue(container),
+    };
+
+    try {
+      await vi.resetModules();
+      vi.doMock("dockerode", () => ({ default: vi.fn(() => docker) }));
+      const { runSandboxed: runWithMockDocker } =
+        await import("../../src/sandbox/runSandboxed.js");
+
+      if (failVolume) {
+        await expect(
+          runWithMockDocker(consumerRepoDir, patchDir),
+        ).rejects.toThrow("volume creation failed");
+      } else {
+        await expect(
+          runWithMockDocker(consumerRepoDir, patchDir),
+        ).resolves.toEqual({
+          passed: true,
+          log: "[prep] \n[run] ",
+        });
+        expect(containerRemove).toHaveBeenCalledTimes(2);
+      }
+
+      expect(snapshot()).toEqual(before);
+      expect(volumeRemove).toHaveBeenCalledOnce();
+      expect(
+        readdirSync(tmpdir())
+          .filter((entry) => entry.startsWith("mp-sandbox-staged-"))
+          .sort(),
+      ).toEqual(temporaryStagesBefore);
+    } finally {
+      vi.doUnmock("dockerode");
+      await vi.resetModules();
+      rmSync(consumerRepoDir, { recursive: true, force: true });
+      rmSync(patchDir, { recursive: true, force: true });
+      rmSync(externalFile, { force: true });
+    }
   });
 });

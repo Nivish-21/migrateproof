@@ -186,6 +186,8 @@ export async function runSandboxed(
 
   const volumeName = `migrateproof-sandbox-${randomUUID()}`;
   let prepSrcDir: string | null = null;
+  let consumerStageDir: string | null = null;
+  let patchStageDir: string | null = null;
   let entrypointDir: string | null = null;
   let prepLog = "";
   let runLog = "";
@@ -207,9 +209,20 @@ export async function runSandboxed(
     if (lockfilePath) {
       cpSync(lockfilePath, join(prepSrcDir, "package-lock.json"));
     }
+    consumerStageDir = mkdtempSync(
+      join(tmpdir(), "mp-sandbox-staged-consumer-"),
+    );
+    patchStageDir = mkdtempSync(join(tmpdir(), "mp-sandbox-staged-patch-"));
+    const stagedConsumerDir = join(consumerStageDir, "input");
+    const stagedPatchDir = join(patchStageDir, "input");
+    cpSync(consumerRepoDir, stagedConsumerDir, {
+      dereference: false,
+      recursive: true,
+    });
+    cpSync(patchDir, stagedPatchDir, { dereference: false, recursive: true });
     await ensureReadableByContainer(prepSrcDir, "a+rwX");
-    await ensureReadableByContainer(consumerRepoDir, "a+rX");
-    await ensureReadableByContainer(patchDir, "a+rX");
+    await ensureReadableByContainer(stagedConsumerDir, "a+rX");
+    await ensureReadableByContainer(stagedPatchDir, "a+rX");
 
     await docker.createVolume({
       Name: volumeName,
@@ -285,11 +298,16 @@ export async function runSandboxed(
         Mounts: [
           {
             Type: "bind",
-            Source: consumerRepoDir,
+            Source: stagedConsumerDir,
             Target: "/src",
             ReadOnly: true,
           },
-          { Type: "bind", Source: patchDir, Target: "/patch", ReadOnly: true },
+          {
+            Type: "bind",
+            Source: stagedPatchDir,
+            Target: "/patch",
+            ReadOnly: true,
+          },
           {
             Type: "bind",
             Source: entrypointPath,
@@ -320,6 +338,10 @@ export async function runSandboxed(
   } finally {
     await removeQuietly(docker.getVolume(volumeName));
     if (entrypointDir) rmSync(entrypointDir, { recursive: true, force: true });
+    if (patchStageDir) rmSync(patchStageDir, { recursive: true, force: true });
+    if (consumerStageDir) {
+      rmSync(consumerStageDir, { recursive: true, force: true });
+    }
     if (prepSrcDir) rmSync(prepSrcDir, { recursive: true, force: true });
   }
 
