@@ -2,12 +2,26 @@
 
 ## Run checks locally
 
+Activate a Python 3 virtual environment first; the test suite invokes
+`python3` for Python impact-analysis coverage. Replace the placeholder with
+your environment's path. Docker must be running for the sandbox suite.
+
 ```sh
-npm install && npm test
+source /path/to/your/python-venv/bin/activate
+npm ci
+docker info
+npm run format
 npm run lint
 npm run typecheck
+npm run test:all
+npm run package:smoke
 npm run build
 ```
+
+These are the CI gates. `npm run test:all` includes the Docker sandbox suite;
+that suite skips when Docker is unavailable, and a skip is not a pass. Check
+the test output and rerun with Docker running before treating the gate as
+green.
 
 ## Add a fixture
 

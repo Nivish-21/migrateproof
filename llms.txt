@@ -1,24 +1,26 @@
 # MigrateProof
 
-> Proves whether a consumer's real code and business invariant survive a
-> recorded API behaviour change, via deterministic replay — no live API
-> calls during the check itself.
+> Scans an existing test suite to find documented API response changes its
+> assertions miss. The default workflow observes JSON fetched through
+> `globalThis.fetch`, mutates responses, and reruns affected tests.
 
 ## What it is
 
-A CLI that replays a recorded API response through your actual consumer
-code and checks whether a business rule still holds. Not a static linter
-against known SDKs — it works on any API, including internal/custom ones,
-because it never needs to know the API's shape in advance, only one
-recorded example.
+A CLI that checks whether existing tests notice an API response change. It
+does not define whether a business rule is correct. The scan runs the target's
+`npm test` on the host and only observes JSON responses reached through
+`globalThis.fetch`; unsupported or unconfirmed cases are **Cannot prove**.
+The fixture workflow can replay a hand-stated invariant against recorded
+responses when that narrower proof is needed.
 
 ## Commands
 
+- `migrateproof [scan] [--changes <file>] [--json]` — scan tests against documented changes; without `--changes`, generate exploratory mutations.
 - `migrateproof init <name> --method <M> --url <U>` — scaffold a new fixture.
 - `migrateproof capture <fixture-dir> --as v1|v2 --url <U>|--from-file <path>` — record a response.
 - `migrateproof replay <fixture-dir> --version v1|v2 [--json]` — replay it through the real consumer code and check the invariant.
 - `migrateproof diagnose <fixture-dir>` — classify why a v2 replay failed, without Docker.
-- `migrateproof patch <fixture-dir> --patch-backend codex` — propose a fix in an isolated Docker sandbox, empirically re-verified before it's shown to you. Never merges automatically.
+- `migrateproof patch <fixture-dir> --patch-backend codex` — ask a configured coding agent to propose a fix in an isolated Git worktree, then replay it. The worktree is not a security sandbox; agent execution has that tool's permissions. Never merges automatically.
 - `migrateproof install-skill` — writes agent-readable setup instructions into the current repository at `.agents/skills/migrateproof/SKILL.md`.
 
 ## Fixture format
