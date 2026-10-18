@@ -1,14 +1,16 @@
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { promisify } from "node:util";
 import { UsageError } from "../errors.js";
-import { resolveTestCommand, type ObservedCall } from "./observe.js";
+import { runTestProcess } from "../process/runTestProcess.js";
+import {
+  resolveTestCommand,
+  testRunArgs,
+  type ObservedCall,
+} from "./observe.js";
 
-const execFileAsync = promisify(execFile);
-const RERUN_TIMEOUT_MS = 60 * 1000;
+export const RERUN_TIMEOUT_MS = 60 * 1000;
 const ANSI_ESCAPE_SEQUENCE = new RegExp(
   `${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`,
   "g",
@@ -102,8 +104,10 @@ export async function rerun(
   projectRoot: string,
   call: ObservedCall,
   mutatedBody: unknown,
+  timeoutMs: number = RERUN_TIMEOUT_MS,
 ): Promise<RerunResult> {
-  const baseArgv = resolveTestCommand(join(projectRoot, "package.json"));
+  const packageJsonPath = join(projectRoot, "package.json");
+  const baseArgv = resolveTestCommand(packageJsonPath);
   const [command, ...baseArgs] = baseArgv;
   if (command === undefined) {
     throw new UsageError("could not resolve a test command");
@@ -115,7 +119,10 @@ export async function rerun(
     );
   }
 
-  const args = [...baseArgs, "--", ...call.touchingTests];
+  const args = [
+    ...baseArgs,
+    ...testRunArgs(packageJsonPath, call.touchingTests),
+  ];
   const thisDir = dirname(fileURLToPath(import.meta.url));
   const tsSetup = join(thisDir, "rerunSetup.ts");
   const jsSetup = join(thisDir, "rerunSetup.js");
@@ -143,9 +150,9 @@ export async function rerun(
       }
     | undefined;
   try {
-    const { stdout, stderr } = await execFileAsync(command, args, {
+    const { stdout, stderr } = await runTestProcess(command, args, {
       cwd: projectRoot,
-      timeout: RERUN_TIMEOUT_MS,
+      timeoutMs,
       env: {
         ...process.env,
         NODE_OPTIONS:

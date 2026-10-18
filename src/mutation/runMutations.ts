@@ -22,13 +22,36 @@ import {
   type Mutation,
 } from "./operators.js";
 import { deriveVerdict, type ScanReport } from "./report.js";
-import type { RerunResult } from "./rerun.js";
+import { RERUN_TIMEOUT_MS, type RerunResult } from "./rerun.js";
+
+/**
+ * Hard ceilings so one scan never costs much more than running the tests by
+ * hand. The rerun cap equals the per-response generic cap, so one endpoint's
+ * full mutation set always fits in a single scan.
+ */
+export const MAX_RERUNS_PER_SCAN = MAX_MUTATIONS_PER_RESPONSE;
+export const SCAN_TIME_BUDGET_MS = 5 * 60 * 1000;
+const BUDGET_NEXT_ACTION =
+  "list fewer changes or pass --tests with fewer files, then scan again";
+
+export interface ScanOptions {
+  /** Project-relative test files for the baseline; undefined runs the whole suite. */
+  testFiles: string[] | undefined;
+  onProgress: (message: string) => void;
+}
+
+export const FULL_SUITE_QUIET: ScanOptions = {
+  testFiles: undefined,
+  onProgress: () => {},
+};
 
 const NO_FETCH_NEXT_ACTION =
   "run a test that calls the API through globalThis.fetch";
 const NO_TEST_NEXT_ACTION =
   "add or attribute a test that exercises this request";
 const BASELINE_NEXT_ACTION = "fix the failing baseline tests before scanning";
+const BASELINE_TIMEOUT_NEXT_ACTION =
+  "pass --tests with only the test files that call this API, then scan again";
 const AMBIGUOUS_RESPONSE_REASON =
   "the same request returned different response bodies or statuses";
 const AMBIGUOUS_RESPONSE_NEXT_ACTION =
@@ -40,9 +63,57 @@ export async function rerunWithMutation(
   projectRoot: string,
   call: ObservedCall,
   mutatedBody: unknown,
+  timeoutMs: number,
 ): Promise<RerunResult> {
   const { rerun } = await import("./rerun.js");
-  return rerun(projectRoot, call, mutatedBody);
+  return rerun(projectRoot, call, mutatedBody, timeoutMs);
+}
+
+type BudgetedRerun = (
+  call: ObservedCall,
+  mutatedBody: unknown,
+  label: string,
+) => Promise<RerunResult>;
+
+/**
+ * Wraps reruns in the scan's two ceilings: a rerun count and a wall-clock
+ * budget. Work past either is reported as incomplete, never dropped.
+ */
+function createBudgetedRerun(
+  projectRoot: string,
+  startedAt: number,
+  plannedReruns: number,
+  onProgress: (message: string) => void,
+): BudgetedRerun {
+  let reruns = 0;
+  const total = Math.min(plannedReruns, MAX_RERUNS_PER_SCAN);
+  return async (call, mutatedBody, label) => {
+    const remainingMs = SCAN_TIME_BUDGET_MS - (Date.now() - startedAt);
+    if (remainingMs <= 0) {
+      return {
+        kind: "incomplete",
+        testsRun: 0,
+        reason: `not run: the scan reached its time limit (${SCAN_TIME_BUDGET_MS / 60_000} min)`,
+        nextAction: BUDGET_NEXT_ACTION,
+      };
+    }
+    if (reruns >= MAX_RERUNS_PER_SCAN) {
+      return {
+        kind: "incomplete",
+        testsRun: 0,
+        reason: `not run: the scan reached its rerun limit (${MAX_RERUNS_PER_SCAN} per scan)`,
+        nextAction: BUDGET_NEXT_ACTION,
+      };
+    }
+    reruns += 1;
+    onProgress(`rerun ${reruns}/${total}: ${label}`);
+    return rerunWithMutation(
+      projectRoot,
+      call,
+      mutatedBody,
+      Math.min(RERUN_TIMEOUT_MS, remainingMs),
+    );
+  };
 }
 
 function sortedTestFiles(calls: ObservedCall[]): string[] {
@@ -152,7 +223,13 @@ function makeReport(
 function baselineReason(baseline: {
   exitCode?: number;
   signal?: string;
+  timedOut?: boolean;
+  command?: string;
+  timeoutMs?: number;
 }): string {
+  if (baseline.timedOut) {
+    return `baseline test run (${baseline.command ?? "npm test"}) did not finish within its ${(baseline.timeoutMs ?? 0) / 60_000} min limit and was stopped`;
+  }
   if (baseline.exitCode !== undefined) {
     return `baseline test run failed with exit code ${baseline.exitCode}`;
   }
@@ -218,31 +295,48 @@ function loadChangesFile(changesPath: string): ChangesFile {
 export async function runMutations(
   projectRoot: string,
   changesPath?: string,
+  options: ScanOptions = FULL_SUITE_QUIET,
 ): Promise<ScanReport> {
+  const startedAt = Date.now();
   const changesFile = changesPath ? loadChangesFile(changesPath) : undefined;
-  const observed = await observe(projectRoot);
+  const { testFiles, onProgress } = options;
+  onProgress(
+    testFiles
+      ? `baseline: ${testFiles.length} test file${testFiles.length === 1 ? "" : "s"} (${testFiles.join(", ")})`
+      : "baseline: full test suite",
+  );
+  const observed = await observe(projectRoot, testFiles);
   const mode = changesFile ? "changes" : "generic";
+  const report = await mutateObserved(
+    projectRoot,
+    observed,
+    changesFile,
+    mode,
+    startedAt,
+    onProgress,
+  );
+  onProgress(`done in ${((Date.now() - startedAt) / 1000).toFixed(1)} s`);
+  return report;
+}
 
+async function mutateObserved(
+  projectRoot: string,
+  observed: Awaited<ReturnType<typeof observe>>,
+  changesFile: ChangesFile | undefined,
+  mode: "generic" | "changes",
+  startedAt: number,
+  onProgress: (message: string) => void,
+): Promise<ScanReport> {
   if (!observed.baseline.passed) {
     const reason = baselineReason(observed.baseline);
+    const nextAction = observed.baseline.timedOut
+      ? BASELINE_TIMEOUT_NEXT_ACTION
+      : BASELINE_NEXT_ACTION;
     const outcomes = changesFile
       ? changesFile.changes.map((change) =>
-          incompleteOutcome(
-            change.endpoint,
-            [],
-            reason,
-            BASELINE_NEXT_ACTION,
-            change,
-          ),
+          incompleteOutcome(change.endpoint, [], reason, nextAction, change),
         )
-      : [
-          incompleteOutcome(
-            "(all endpoints)",
-            [],
-            reason,
-            BASELINE_NEXT_ACTION,
-          ),
-        ];
+      : [incompleteOutcome("(all endpoints)", [], reason, nextAction)];
     return makeReport(outcomes, mode, changesFile?.source);
   }
 
@@ -273,6 +367,15 @@ export async function runMutations(
   }
 
   if (!changesFile) {
+    const budgetedRerun = createBudgetedRerun(
+      projectRoot,
+      startedAt,
+      observed.calls.reduce(
+        (sum, call) => sum + changedGenericMutations(call.body).length,
+        0,
+      ),
+      onProgress,
+    );
     const outcomes: MutationOutcome[] = [];
     for (const call of observed.calls) {
       const endpoint = `${call.method} ${call.url}`;
@@ -306,7 +409,11 @@ export async function runMutations(
           );
           continue;
         }
-        const rerun = await rerunWithMutation(projectRoot, call, mutatedBody);
+        const rerun = await budgetedRerun(
+          call,
+          mutatedBody,
+          `${endpoint} ${mutation.operator} ${mutation.fieldPath}`,
+        );
         if (rerun.kind === "incomplete") {
           outcomes.push(
             incompleteOutcome(
@@ -334,6 +441,19 @@ export async function runMutations(
     return makeReport(outcomes, "generic");
   }
 
+  const budgetedRerun = createBudgetedRerun(
+    projectRoot,
+    startedAt,
+    changesFile.changes.reduce(
+      (sum, change) =>
+        sum +
+        observed.calls.filter((call) =>
+          endpointMatches(call, changesFile.api, change.endpoint),
+        ).length,
+      0,
+    ),
+    onProgress,
+  );
   const outcomes: MutationOutcome[] = [];
   for (const change of changesFile.changes) {
     const matchingCalls = observed.calls.filter((call) =>
@@ -412,7 +532,11 @@ export async function runMutations(
         continue;
       }
 
-      const rerun = await rerunWithMutation(projectRoot, call, mutatedBody);
+      const rerun = await budgetedRerun(
+        call,
+        mutatedBody,
+        `${endpoint} ${change.field}`,
+      );
       if (rerun.kind === "incomplete") {
         candidates.push(
           incompleteOutcome(

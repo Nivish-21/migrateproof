@@ -1,41 +1,19 @@
-import { execFile, spawn } from "node:child_process";
-import { setTimeout as delay } from "node:timers/promises";
+import { spawn } from "node:child_process";
 import { UsageError } from "../../errors.js";
+import {
+  TERMINATION_COMMAND_TIMEOUT_MS,
+  TERMINATION_GRACE_MS,
+  createPlatformEnvironment,
+  isErrnoCode,
+  terminateProcessTree,
+} from "../../process/terminateProcessTree.js";
 
 const DEFAULT_BACKEND_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_BACKEND_TIMEOUT_MS = 2_147_483_647;
-const TERMINATION_GRACE_MS = 250;
-const TERMINATION_COMMAND_TIMEOUT_MS = 5_000;
 const SHUTDOWN_DRAIN_MS = 1_000;
 
 export class BackendShutdownError extends UsageError {}
 const MAX_CAPTURE_BYTES = 1024 * 1024;
-
-const PLATFORM_ENVIRONMENT_KEYS = [
-  "PATH",
-  "HOME",
-  "USERPROFILE",
-  "APPDATA",
-  "LOCALAPPDATA",
-  "TMP",
-  "TEMP",
-  "TMPDIR",
-  "SystemRoot",
-  "SYSTEMROOT",
-  "ComSpec",
-  "PATHEXT",
-  "LANG",
-  "LC_ALL",
-  "TERM",
-  "COLORTERM",
-  "NO_COLOR",
-  "FORCE_COLOR",
-  "USER",
-  "LOGNAME",
-  "XDG_CONFIG_HOME",
-  "XDG_CACHE_HOME",
-  "XDG_DATA_HOME",
-] as const;
 
 const BACKEND_AUTH_ENVIRONMENT_KEYS: Record<string, readonly string[]> = {
   codex: [
@@ -93,15 +71,6 @@ interface CapturedOutput {
   size: number;
 }
 
-function createPlatformEnvironment(): NodeJS.ProcessEnv {
-  const environment: NodeJS.ProcessEnv = {};
-  for (const key of PLATFORM_ENVIRONMENT_KEYS) {
-    const value = process.env[key];
-    if (value !== undefined) environment[key] = value;
-  }
-  return environment;
-}
-
 function createBackendEnvironment(label: string): NodeJS.ProcessEnv {
   const environment = createPlatformEnvironment();
   for (const key of BACKEND_AUTH_ENVIRONMENT_KEYS[label] ?? []) {
@@ -124,14 +93,6 @@ function formatOutput(output: CapturedOutput): string {
   return Buffer.concat(output.chunks).toString("utf8");
 }
 
-function isErrnoCode(error: unknown, code: string): boolean {
-  return (
-    error instanceof Error &&
-    "code" in error &&
-    (error as NodeJS.ErrnoException).code === code
-  );
-}
-
 function processFailure(
   input: RunBackendProcessInput,
   error: unknown,
@@ -148,68 +109,6 @@ function processFailure(
   return new UsageError(
     `${input.label} patch backend could not be started.${platformHint}`,
   );
-}
-
-function signalPosixTree(pid: number, signal: NodeJS.Signals): void {
-  try {
-    process.kill(-pid, signal);
-  } catch (error) {
-    if (!isErrnoCode(error, "ESRCH")) throw error;
-  }
-}
-
-function runTaskkill(pid: number, force: boolean): Promise<void> {
-  const args = ["/pid", String(pid), "/T"];
-  if (force) args.push("/F");
-  return new Promise((resolve, reject) => {
-    execFile(
-      "taskkill",
-      args,
-      {
-        env: createPlatformEnvironment(),
-        maxBuffer: 64 * 1024,
-        shell: false,
-        timeout: TERMINATION_COMMAND_TIMEOUT_MS,
-        windowsHide: true,
-      },
-      (error) => {
-        if (error) reject(error);
-        else resolve();
-      },
-    );
-  });
-}
-
-async function terminateProcessTree(
-  pid: number,
-  hasClosed: () => boolean,
-): Promise<void> {
-  let gracefulTerminationFailed = false;
-  try {
-    if (process.platform === "win32") {
-      await runTaskkill(pid, false);
-    } else {
-      signalPosixTree(pid, "SIGTERM");
-    }
-  } catch {
-    gracefulTerminationFailed = true;
-  }
-  await delay(TERMINATION_GRACE_MS);
-  if (process.platform === "win32" && !gracefulTerminationFailed && hasClosed())
-    return;
-  try {
-    if (process.platform === "win32") {
-      await runTaskkill(pid, true);
-    } else {
-      signalPosixTree(pid, "SIGKILL");
-    }
-  } catch {
-    throw new Error(
-      gracefulTerminationFailed
-        ? "graceful and forced process-tree termination failed"
-        : "forced process-tree termination failed",
-    );
-  }
 }
 
 function timeoutError(input: RunBackendProcessInput): BackendShutdownError {

@@ -12,9 +12,13 @@ const require = createRequire(import.meta.url);
 const tsxLoader = require.resolve("tsx");
 const repoRoot = resolve(".");
 
-async function runScan(dir: string): Promise<{
+async function runScan(
+  dir: string,
+  extraArgs: string[] = [],
+): Promise<{
   exitCode: number;
   stdout: string;
+  stderr: string;
 }> {
   try {
     const result = await execFileAsync(
@@ -27,15 +31,17 @@ async function runScan(dir: string): Promise<{
         "--changes",
         "changes.json",
         "--json",
+        ...extraArgs,
       ],
       { cwd: dir },
     );
-    return { exitCode: 0, stdout: result.stdout };
+    return { exitCode: 0, stdout: result.stdout, stderr: result.stderr };
   } catch (error: unknown) {
     if (error && typeof error === "object" && "code" in error) {
       return {
         exitCode: (error as { code: number }).code,
         stdout: (error as { stdout?: string }).stdout ?? "",
+        stderr: (error as { stderr?: string }).stderr ?? "",
       };
     }
     throw error;
@@ -43,6 +49,29 @@ async function runScan(dir: string): Promise<{
 }
 
 describe("scan command", () => {
+  it("refuses to fall back to the whole suite when no test references the API", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mp-scan-scope-"));
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({ name: "x", scripts: { test: "node --test" } }),
+    );
+    writeFileSync(
+      join(dir, "changes.json"),
+      JSON.stringify({
+        api: "api.example.com",
+        changes: [{ endpoint: "GET /orders", field: "id", kind: "removed" }],
+      }),
+    );
+    try {
+      const result = await runScan(dir);
+      expect(result.exitCode).toBe(2);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toMatch(/no test files reference.*--tests/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("rejects --fix without documented changes before running tests", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mp-fix-usage-"));
     try {
@@ -156,7 +185,7 @@ describe("scan command", () => {
       }),
     );
     try {
-      const baselineFailure = await runScan(dir);
+      const baselineFailure = await runScan(dir, ["--all-tests"]);
       expect(baselineFailure.exitCode).toBe(2);
       expect(JSON.parse(baselineFailure.stdout)).toMatchObject({
         verdict: "incomplete",

@@ -10,7 +10,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it, vi } from "vitest";
-import { observe, resolveTestCommand } from "../../src/mutation/observe.js";
+import {
+  observe,
+  resolveTestCommand,
+  testRunArgs,
+} from "../../src/mutation/observe.js";
 import { UsageError } from "../../src/errors.js";
 import { resolveNpmCommand } from "../../src/process/npmCommand.js";
 
@@ -266,6 +270,92 @@ describe("observe", () => {
       const result = await observe(dir);
       expect(result.calls).toHaveLength(1);
       expect(result.calls[0]?.responseAmbiguous).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("runs only the given test files, with the runner's worker cap", async () => {
+    const dir = withPackageJson({ scripts: { test: "node --test" } });
+    mkdirSync(join(dir, "node_modules"));
+    for (const name of ["selected", "other"]) {
+      writeFileSync(
+        join(dir, `${name}.test.mjs`),
+        [
+          'import { test } from "node:test";',
+          `test("${name}", async () => {`,
+          '  globalThis.fetch = async () => new Response("{}", { headers: { "content-type": "application/json" } });',
+          `  await fetch("https://api.example.test/${name}");`,
+          "});",
+        ].join("\n"),
+      );
+    }
+
+    try {
+      const result = await observe(dir, ["selected.test.mjs"]);
+      expect(result.baseline.passed).toBe(true);
+      expect(result.calls.map(({ url }) => url)).toEqual([
+        "https://api.example.test/selected",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("builds the args after npm's separator: worker cap first, then files", () => {
+    const dir = withPackageJson({ scripts: { test: "vitest run" } });
+    try {
+      expect(testRunArgs(join(dir, "package.json"), ["a.test.ts"])).toEqual([
+        "--",
+        "--maxWorkers=2",
+        "--minWorkers=1",
+        "a.test.ts",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("appends nothing for an unknown runner with no files", () => {
+    const dir = withPackageJson({ scripts: { test: "mocha" } });
+    try {
+      expect(testRunArgs(join(dir, "package.json"), [])).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("records a mocked fetch that resolves a plain object instead of a Response", async () => {
+    const dir = withPackageJson({ scripts: { test: "node --test" } });
+    mkdirSync(join(dir, "node_modules"));
+    writeFileSync(
+      join(dir, "plain.test.js"),
+      [
+        'import assert from "node:assert/strict";',
+        'import { test } from "node:test";',
+        'test("plain-object response with a one-shot json()", async () => {',
+        "  let reads = 0;",
+        "  globalThis.fetch = async () => ({",
+        "    ok: true,",
+        "    status: 200,",
+        "    json: async () => (reads++ === 0 ? { stage: \"RUNNING\" } : undefined),",
+        "  });",
+        '  const response = await fetch("https://api.example.test/space");',
+        '  assert.deepEqual(await response.json(), { stage: "RUNNING" });',
+        "});",
+      ].join("\n"),
+    );
+
+    try {
+      const result = await observe(dir);
+      expect(result.baseline.passed).toBe(true);
+      expect(result.calls).toEqual([
+        expect.objectContaining({
+          url: "https://api.example.test/space",
+          status: 200,
+          body: { stage: "RUNNING" },
+        }),
+      ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

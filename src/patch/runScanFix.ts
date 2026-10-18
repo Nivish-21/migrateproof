@@ -12,7 +12,11 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { isDeepStrictEqual, promisify } from "node:util";
 import { UsageError } from "../errors.js";
 import type { MutationOutcome } from "../mutation/classify.js";
-import { runMutations } from "../mutation/runMutations.js";
+import {
+  FULL_SUITE_QUIET,
+  runMutations,
+  type ScanOptions,
+} from "../mutation/runMutations.js";
 import { resolveNpmCommand } from "../process/npmCommand.js";
 import type { PatchBackend } from "./types.js";
 import { createWorktree } from "./worktree.js";
@@ -134,6 +138,7 @@ export async function runScanFix(
   repoRoot: string,
   changesPath: string,
   backend: PatchBackend,
+  options: ScanOptions = FULL_SUITE_QUIET,
 ): Promise<ScanFixResult> {
   let root = realpathSync(repoRoot);
   let head: string;
@@ -166,7 +171,7 @@ export async function runScanFix(
   if (!tracked.has(localChanges))
     throw new UsageError("scan --fix requires a committed changes file");
 
-  const report = await runMutations(root, absoluteChanges);
+  const report = await runMutations(root, absoluteChanges, options);
   await assertClean(root, head);
   if (
     report.mode !== "changes" ||
@@ -196,9 +201,11 @@ export async function runScanFix(
   let before: MutationOutcome;
   try {
     await prepareDependencies(worktreeDir);
+    // Test files are project-relative, so the same scope applies in the worktree.
     const preflight = await runMutations(
       worktreeDir,
       join(worktreeDir, localChanges),
+      options,
     );
     const candidate = preflight.outcomes[selectedIndex];
     if (
@@ -313,6 +320,7 @@ export async function runScanFix(
     const verification = await runMutations(
       worktreeDir,
       join(worktreeDir, localChanges),
+      options,
     );
     after = verification.outcomes[selectedIndex] ?? null;
     await assertClean(root, head);

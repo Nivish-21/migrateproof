@@ -29,6 +29,44 @@ function findTouchingTest(): string {
   return "";
 }
 
+interface ReadResponse {
+  body: unknown;
+  status: number;
+  /** What the test receives: the original, or a copy that can be read again. */
+  forTest: unknown;
+}
+
+// Tests often mock fetch with a plain `{ ok, status, json }` object rather than
+// a Response. It has no clone(), so read json() once and hand the test a copy
+// whose json() returns the same body: a one-shot mock still works for it.
+async function readJsonResponse(response: unknown): Promise<ReadResponse> {
+  if (response instanceof Response) {
+    return {
+      body: (await response.clone().json()) as unknown,
+      status: response.status,
+      forTest: response,
+    };
+  }
+  const fake = response as { json?: unknown; status?: unknown; ok?: unknown };
+  if (typeof fake?.json !== "function") throw new Error("not a JSON response");
+  const body: unknown = await (fake.json as () => Promise<unknown>).call(fake);
+  const status =
+    typeof fake.status === "number"
+      ? fake.status
+      : fake.ok === false
+        ? 500
+        : 200;
+  return {
+    body,
+    status,
+    forTest: Object.assign(
+      Object.create(Object.getPrototypeOf(fake) as object | null) as object,
+      fake,
+      { json: async () => body },
+    ),
+  };
+}
+
 function wrap(fn: unknown): unknown {
   if (
     typeof fn !== "function" ||
@@ -42,11 +80,13 @@ function wrap(fn: unknown): unknown {
     init?: RequestInit,
   ) {
     const response = await (
-      fn as (...args: unknown[]) => Promise<Response>
+      fn as (...args: unknown[]) => Promise<unknown>
     ).call(this, input, init);
+    let forTest: unknown = response;
     try {
-      const clone = response.clone();
-      const body: unknown = await clone.json();
+      const read = await readJsonResponse(response);
+      forTest = read.forTest;
+      const { body, status } = read;
       const touchingTest = findTouchingTest();
       const rawUrl =
         typeof input === "string"
@@ -66,7 +106,7 @@ function wrap(fn: unknown): unknown {
           `${JSON.stringify({
             method: method.toUpperCase(),
             url: rawUrl,
-            status: response.status,
+            status,
             body,
             touchingTest,
           })}\n`,
@@ -75,7 +115,7 @@ function wrap(fn: unknown): unknown {
     } catch {
       // Non-JSON response — out of scope for the starter mutation set.
     }
-    return response;
+    return forTest;
   };
   (wrapped as { __mpWrapped?: boolean }).__mpWrapped = true;
   return wrapped;

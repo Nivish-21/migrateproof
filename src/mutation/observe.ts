@@ -1,15 +1,16 @@
 // src/mutation/observe.ts
-import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { isDeepStrictEqual, promisify } from "node:util";
+import { isDeepStrictEqual } from "node:util";
 import { UsageError } from "../errors.js";
 import { resolveNpmCommand } from "../process/npmCommand.js";
+import { runTestProcess } from "../process/runTestProcess.js";
+import { workerCapArgs } from "../process/workerCap.js";
 
-const execFileAsync = promisify(execFile);
-
-const OBSERVE_TIMEOUT_MS = 10 * 60 * 1000;
+// A baseline that takes longer than this is too heavy to run on a laptop:
+// scope the scan to the relevant tests instead of waiting it out.
+export const OBSERVE_TIMEOUT_MS = 2 * 60 * 1000;
 
 export interface ObservedCall {
   method: string;
@@ -29,6 +30,9 @@ export interface ObserveResult {
     passed: boolean;
     exitCode?: number;
     signal?: string;
+    timedOut?: boolean;
+    command?: string;
+    timeoutMs?: number;
   };
 }
 
@@ -123,6 +127,31 @@ export function resolveTestCommand(packageJsonPath: string): string[] {
   return resolveNpmCommand(["test", "--silent"]);
 }
 
+/** The project's `test` script text, for detecting its runner. */
+export function readTestScript(packageJsonPath: string): string {
+  const parsed: unknown = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
+  const scripts =
+    typeof parsed === "object" && parsed !== null && "scripts" in parsed
+      ? (parsed as { scripts?: Record<string, unknown> }).scripts
+      : undefined;
+  return typeof scripts?.test === "string" ? scripts.test : "";
+}
+
+/**
+ * Arguments appended after `npm test --`: a worker cap for the detected
+ * runner, then the files to run. Empty when there is nothing to append.
+ */
+export function testRunArgs(
+  packageJsonPath: string,
+  testFiles: readonly string[],
+): string[] {
+  const extra = [
+    ...workerCapArgs(readTestScript(packageJsonPath)),
+    ...testFiles,
+  ];
+  return extra.length > 0 ? ["--", ...extra] : [];
+}
+
 interface RawRecordedCall {
   method: string;
   url: string;
@@ -157,9 +186,16 @@ function parseTestCounts(output: string): {
   return { testsRan, failingTests };
 }
 
-export async function observe(projectRoot: string): Promise<ObserveResult> {
+export async function observe(
+  projectRoot: string,
+  testFiles: string[] | undefined = undefined,
+): Promise<ObserveResult> {
   assertNotNestedRun();
-  const argv = resolveTestCommand(join(projectRoot, "package.json"));
+  const packageJsonPath = join(projectRoot, "package.json");
+  const argv = [
+    ...resolveTestCommand(packageJsonPath),
+    ...testRunArgs(packageJsonPath, testFiles ?? []),
+  ];
   const [command, ...args] = argv;
   if (command === undefined) {
     throw new UsageError("could not resolve a test command");
@@ -186,9 +222,9 @@ export async function observe(projectRoot: string): Promise<ObserveResult> {
   let baseline: ObserveResult["baseline"] = { passed: true };
 
   try {
-    const { stdout, stderr } = await execFileAsync(command, args, {
+    const { stdout, stderr } = await runTestProcess(command, args, {
       cwd: projectRoot,
-      timeout: OBSERVE_TIMEOUT_MS,
+      timeoutMs: OBSERVE_TIMEOUT_MS,
       env: {
         ...process.env,
         NODE_OPTIONS:
@@ -220,9 +256,20 @@ export async function observe(projectRoot: string): Promise<ObserveResult> {
         stderr?: string;
         code?: unknown;
         signal?: unknown;
+        killed?: unknown;
       };
       combinedOutput = `${execError.stdout ?? ""}\n${execError.stderr ?? ""}`;
-      baseline = { passed: false };
+      baseline =
+        execError.killed === true
+          ? {
+              passed: false,
+              timedOut: true,
+              command: ["npm", "test", ...args.slice(args.indexOf("--"))].join(
+                " ",
+              ),
+              timeoutMs: OBSERVE_TIMEOUT_MS,
+            }
+          : { passed: false };
       if (typeof execError.code === "number")
         baseline.exitCode = execError.code;
       if (typeof execError.signal === "string")

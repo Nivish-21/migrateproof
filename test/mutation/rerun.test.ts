@@ -2,12 +2,15 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { execFileMock } = vi.hoisted(() => ({ execFileMock: vi.fn() }));
+const { runTestProcessMock } = vi.hoisted(() => ({
+  runTestProcessMock: vi.fn(),
+}));
 
-vi.mock("node:child_process", () => ({ execFile: execFileMock }));
+vi.mock("../../src/process/runTestProcess.js", () => ({
+  runTestProcess: runTestProcessMock,
+}));
 
 const call = {
   method: "GET",
@@ -59,8 +62,7 @@ async function loadRerun(
     if ("error" in result) throw result.error;
     return { stdout: result.output, stderr: "" };
   };
-  (execFileMock as unknown as Record<symbol, unknown>)[promisify.custom] =
-    custom;
+  runTestProcessMock.mockImplementation(custom);
   const module = await import("../../src/mutation/rerun.js");
   return module.rerun;
 }

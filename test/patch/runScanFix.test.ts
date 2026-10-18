@@ -144,6 +144,27 @@ test("preserves the order total", async () => { assert.equal(await total(), 1200
     ).toBe("");
   });
 
+  it("passes the scan scope to all three scans: original, preflight and verification", async () => {
+    const scan = vi.spyOn(mutationRunner, "runMutations");
+    const options = {
+      testFiles: ["consumer.test.mjs"],
+      onProgress: () => {},
+    };
+
+    const result = await runScanFix(
+      repoRoot,
+      "changes.json",
+      backend((input) => {
+        writeFileSync(join(input.worktreeDir, "consumer.mjs"), fixedSource);
+      }),
+      options,
+    );
+
+    expect(result.status).toBe("compatible-candidate");
+    expect(scan).toHaveBeenCalledTimes(3);
+    for (const call of scan.mock.calls) expect(call[2]).toBe(options);
+  });
+
   it("accepts an alternate spelling of the Git repository root", async () => {
     const alternateRoot = join(
       dirname(repoRoot),
